@@ -1,4 +1,4 @@
-name: reVC Android
+name: Android APK
 
 on:
   push:
@@ -20,13 +20,22 @@ on:
       - 'CMakeLists.txt'
       - 'vendor/**'
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: APK build type
+        required: true
+        default: debug
+        type: choice
+        options:
+          - debug
+
 
 permissions:
   contents: read
 
 jobs:
   build-tools-and-android:
-    name: Build tools and Android APK (${{ matrix.variant }})
+    name: Build Android APK (${{ matrix.variant }})
     runs-on: ubuntu-latest
 
     strategy:
@@ -102,6 +111,19 @@ jobs:
       - name: Generate synthetic sprite output for CI
         run: tools/ped_sprite_baker/generate_synthetic_sprites.py --output "$REVC_SPRITE_OUTPUT"
 
+      - name: Explain APK asset mode
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Android APK artifact
+
+          This workflow builds and uploads `app-debug.apk` as a GitHub Actions artifact.
+
+          The APK is a CI build artifact and does not include original GTA Vice City assets.
+          It uses a minimal synthetic sprite manifest only so Gradle packaging and native Android compilation can be checked without committing owned game files or generated derivative atlases.
+
+          For a playable personal APK, build locally with `-PrevcVcAssetRoot=/path/to/owned/GTA Vice City` and `-PrevcSpriteOutput=/path/to/generated-sprites`, or provide those private assets to a separate private workflow outside the public repository history.
+          EOF
+
       - name: Validate synthetic sprite manifest coverage
         run: build/ped-baker/revc_ped_sprite_baker --validate-output --output "$REVC_SPRITE_OUTPUT"
 
@@ -112,6 +134,6 @@ jobs:
       - name: Upload ${{ matrix.variant }} APK
         uses: actions/upload-artifact@v4
         with:
-          name: revc-${{ matrix.variant }}
+          name: revc-android-${{ matrix.variant }}-apk-ci-no-owned-assets
           path: android/launcher/app/build/outputs/apk/${{ matrix.variant }}/app-${{ matrix.variant }}.apk
           if-no-files-found: error
