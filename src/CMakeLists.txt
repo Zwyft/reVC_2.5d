@@ -60,6 +60,11 @@ if(LIBRW_PLATFORM_D3D9)
 endif()
 
 if(ANDROID)
+    if(ANDROID_ABI STREQUAL "armeabi-v7a")
+        set(REVC_ANDROID_X32 1)
+    else()
+        set(REVC_ANDROID_X32 0)
+    endif()
     target_compile_definitions(${EXECUTABLE} PRIVATE
             ANDROID
             _ANDROID
@@ -77,6 +82,7 @@ if(ANDROID)
             USE_OUR_VERSIONING
             HAVE_EFFICIENT_UNALIGNED_ACCESS
             VECTORIZE_SINCOS
+            ANDROID_x32=${REVC_ANDROID_X32}
         )
 else()
     target_compile_definitions(${EXECUTABLE} PRIVATE CMAKE_BUILD)
