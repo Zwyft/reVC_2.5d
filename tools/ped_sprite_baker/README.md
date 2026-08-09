@@ -2,6 +2,26 @@
 
 The baker reads a local, user-owned GTA Vice City asset root. Original GTA assets and generated sprite atlases must stay out of git. Configure the asset root with `--asset-root` or `REVC_VC_ASSET_ROOT`; configure generated output with `--output` or `REVC_SPRITE_OUTPUT`. Android personal builds can package owned local assets with `-PrevcVcAssetRoot=/path/to/owned/GTA Vice City` or `REVC_VC_ASSET_ROOT`, and can package generated sprites with `-PrevcSpriteOutput=/path/to/generated/sprites`.
 
+
+## Local ISO extraction
+
+If you have a user-owned retail PC ISO, extract it into the local ignored asset root before baking:
+
+```sh
+python3 tools/extract_vc_iso.py --iso GTA_Vice_City.iso --output local-vc-assets --write-local-config --sprite-output generated-sprites
+```
+
+Some retail discs expose `AUDIO/` directly but keep installed game data inside InstallShield `DATA*.CAB` archives. In that case the helper will extract the ISO, print the exact missing asset files, and tell you to install/extract with `unshield` or equivalent. The final baker input must still be the installed game asset tree containing `MODELS/`, `DATA/`, and `ANIM/`.
+
+Current host packages needed for the full local pipeline on this machine are:
+
+```sh
+sudo apt update
+sudo apt install -y libmpg123-dev unshield xvfb
+```
+
+`libmpg123-dev` is needed by the native game configure, `unshield` is needed for this installer-style ISO, and `xvfb` is needed to run the GL3 sprite baker on a headless SSH session.
+
 Required input files:
 
 - `MODELS/GTA3.IMG`

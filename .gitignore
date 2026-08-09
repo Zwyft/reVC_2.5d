@@ -5,6 +5,15 @@
 
 # User-specific files
 *.rsuser
+
+# Local owned GTA VC inputs and generated 2.5D sprite outputs.
+# These files are intentionally never committed.
+*.iso
+*.ISO
+vc-assets.local.properties
+local-vc-assets/
+generated-sprites/
+revc-sprite-output/
 *.suo
 *.user
 *.userosscache
