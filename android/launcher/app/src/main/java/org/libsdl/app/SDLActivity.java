@@ -1,6 +1,7 @@
 package org.libsdl.app;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.UiModeManager;
@@ -14,6 +15,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
@@ -24,6 +26,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.provider.OpenableColumns;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
@@ -57,6 +60,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
@@ -71,6 +75,9 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     private static final int SDL_MAJOR_VERSION = 2;
     private static final int SDL_MINOR_VERSION = 32;
     private static final int SDL_MICRO_VERSION = 8;
+    private static final int REQUEST_PICK_REVC_DISC_IMAGE = 4901;
+    private static final String REVC_DISC_SOURCE_DIR = "source";
+    private static final String REVC_SELECTED_DISC_POINTER = "selected-disc-image.txt";
 /*
     // Display InputType.SOURCE/CLASS of events and devices
     //
@@ -477,6 +484,19 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         content.addView(close, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        Button selectDisc = new Button(this);
+        selectDisc.setText("Select ISO to Copy");
+        selectDisc.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openRevcDiscImagePicker();
+            }
+        });
+        LinearLayout.LayoutParams selectDiscParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        selectDiscParams.setMargins(0, dp(12), 0, 0);
+        content.addView(selectDisc, selectDiscParams);
+
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content);
         setContentView(scroll);
@@ -484,6 +504,184 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
     private int dp(int value) {
         return (int)(value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private void openRevcDiscImagePicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
+                "application/x-iso9660-image",
+                "application/octet-stream"
+        });
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, REQUEST_PICK_REVC_DISC_IMAGE);
+        } catch (ActivityNotFoundException e) {
+            showStartupErrorScreen("reVC Data Error", "No Android file picker is available on this device.");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_PICK_REVC_DISC_IMAGE) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                Toast.makeText(this, "No disc image selected.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            final Uri uri = data.getData();
+            if (Build.VERSION.SDK_INT >= 19) {
+                try {
+                    getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (SecurityException e) {
+                    Log.w(TAG, "Could not persist disc image URI permission", e);
+                }
+            }
+
+            showStartupErrorScreen("Copying Disc Image", "Copying the selected image into app storage...");
+            Thread copyThread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        final File copiedImage = copySelectedRevcDiscImage(uri);
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                showStartupErrorScreen("Disc Image Copied",
+                                        "Copied selected image to:\n" + copiedImage.getAbsolutePath()
+                                                + "\n\nThe path was saved for the next import/extraction step. This build still needs extracted Vice City data under the app storage root before the game can launch.");
+                            }
+                        });
+                    } catch (final IOException e) {
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                showStartupErrorScreen("reVC Data Error",
+                                        "Unable to copy selected disc image.\n\n" + e.getMessage());
+                            }
+                        });
+                    }
+                }
+            }, "RevcDiscImageCopy");
+            copyThread.start();
+            return;
+        }
+
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private File copySelectedRevcDiscImage(Uri uri) throws IOException {
+        File root = new File(getFilesDir(), "revc");
+        if (!root.exists() && !root.mkdirs()) {
+            throw new IOException("Could not create " + root.getAbsolutePath());
+        }
+
+        File sourceDir = new File(root, REVC_DISC_SOURCE_DIR);
+        if (!sourceDir.exists() && !sourceDir.mkdirs()) {
+            throw new IOException("Could not create " + sourceDir.getAbsolutePath());
+        }
+
+        String displayName = sanitizeFileName(getDisplayNameForUri(uri));
+        if (displayName.length() == 0) {
+            displayName = "selected-disc.iso";
+        }
+
+        File outFile = new File(sourceDir, displayName);
+        File tempFile = new File(sourceDir, displayName + ".tmp");
+        InputStream in = getContentResolver().openInputStream(uri);
+        if (in == null) {
+            throw new IOException("Android did not provide a readable stream for the selected file.");
+        }
+
+        OutputStream out = new FileOutputStream(tempFile);
+        byte[] buffer = new byte[1024 * 1024];
+        int read;
+        try {
+            while ((read = in.read(buffer)) >= 0) {
+                out.write(buffer, 0, read);
+            }
+        } finally {
+            in.close();
+            out.close();
+        }
+
+        if (outFile.exists() && !outFile.delete()) {
+            throw new IOException("Could not replace " + outFile.getAbsolutePath());
+        }
+        if (!tempFile.renameTo(outFile)) {
+            throw new IOException("Could not move copied image into " + outFile.getAbsolutePath());
+        }
+
+        File pointer = new File(sourceDir, REVC_SELECTED_DISC_POINTER);
+        OutputStream pointerOut = new FileOutputStream(pointer);
+        try {
+            pointerOut.write((outFile.getAbsolutePath() + "\n").getBytes(StandardCharsets.UTF_8));
+        } finally {
+            pointerOut.close();
+        }
+
+        return outFile;
+    }
+
+    private String getDisplayNameForUri(Uri uri) {
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri, new String[] { OpenableColumns.DISPLAY_NAME },
+                    null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    String displayName = cursor.getString(index);
+                    if (displayName != null) {
+                        return displayName;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not read selected disc image display name", e);
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+
+        String fallback = uri.getLastPathSegment();
+        if (fallback == null) {
+            return "";
+        }
+        int slash = fallback.lastIndexOf('/');
+        return slash >= 0 ? fallback.substring(slash + 1) : fallback;
+    }
+
+    private String sanitizeFileName(String fileName) {
+        if (fileName == null) {
+            return "";
+        }
+
+        String trimmed = fileName.trim().replace('\\', '/');
+        int slash = trimmed.lastIndexOf('/');
+        if (slash >= 0) {
+            trimmed = trimmed.substring(slash + 1);
+        }
+
+        StringBuilder safe = new StringBuilder();
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
+                safe.append(c);
+            } else {
+                safe.append('_');
+            }
+        }
+
+        String result = safe.toString();
+        if (result.equals(".") || result.equals("..")) {
+            return "";
+        }
+        return result;
     }
 
     protected void prepareRevcStorageRoot() throws IOException {
@@ -886,6 +1084,9 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
         // Try a transition to resumed state
         if (mNextNativeState == NativeState.RESUMED) {
+            if (mSurface == null) {
+                return;
+            }
             if (mSurface.mIsSurfaceReady && mHasFocus && mIsResumedCalled) {
                 if (mSDLThread == null) {
                     // This is the entry point to the C app.
