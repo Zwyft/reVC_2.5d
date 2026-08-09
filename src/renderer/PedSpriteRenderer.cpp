@@ -14,6 +14,7 @@
 #include "Timecycle.h"
 #include "Vehicle.h"
 #include "RwHelper.h"
+#include "rtpng.h"
 
 #include <sys/stat.h>
 
@@ -186,7 +187,7 @@ LoadAtlasTexture(PedSpriteAtlas &atlas)
 		return nil;
 	}
 
-	RwImage *image = RwImageRead(fullPath);
+	RwImage *image = RtPNGImageRead(fullPath);
 	if(image == nil){
 		SetPedSpriteError("unreadable atlas PNG %s", fullPath);
 		return nil;
