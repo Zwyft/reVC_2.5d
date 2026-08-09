@@ -60,7 +60,7 @@ static const PedBakeTarget BuiltInPedTargets[] = {
 	{27, "hmyap", "builtin"},
 	{28, "hmoca", "builtin"},
 	{29, "bmodk", "builtin"},
-	{30, "bmykr", "builtin"},
+	{30, "bmycr", "builtin"},
 	{31, "bfyst", "builtin"},
 	{32, "bfost", "builtin"},
 	{33, "bmyst", "builtin"},
@@ -214,10 +214,65 @@ lower(std::string s)
 	return s;
 }
 
+static std::string
+resolvePath(const std::string &path)
+{
+	if(path.empty() || exists(path))
+		return path;
+	std::string out;
+	size_t pos = 0;
+	if(path[0] == '/'){
+		out = "/";
+		pos = 1;
+	}
+	while(pos <= path.size()){
+		size_t next = path.find_first_of("/\\", pos);
+		std::string part = path.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+		if(!part.empty() && part != "."){
+			std::string dir = out.empty() ? std::string(".") : out;
+			std::string candidate = joinPath(out, part);
+			if(!exists(candidate)){
+				DIR *d = opendir(resolvePath(dir).c_str());
+				bool found = false;
+				if(d){
+					std::string wanted = lower(part);
+					for(dirent *e = readdir(d); e; e = readdir(d)){
+						if(lower(e->d_name) == wanted){
+							candidate = joinPath(out, e->d_name);
+							found = true;
+							break;
+						}
+					}
+					closedir(d);
+				}
+				if(!found)
+					return path;
+			}
+			out = candidate;
+		}
+		if(next == std::string::npos)
+			break;
+		pos = next + 1;
+	}
+	return out;
+}
+
+static bool
+existsResolved(const std::string &path)
+{
+	return exists(resolvePath(path));
+}
+
+static bool
+isDirResolved(const std::string &path)
+{
+	return isDir(resolvePath(path));
+}
+
 static bool
 dirHasExt(const std::string &dir, const char *ext)
 {
-	DIR *d = opendir(dir.c_str());
+	DIR *d = opendir(resolvePath(dir).c_str());
 	if(d == NULL)
 		return false;
 	const std::string wanted = upper(ext);
@@ -265,18 +320,17 @@ validateAssetRoot(const std::string &root)
 	std::vector<std::string> missing;
 	const char *required[] = {
 		"MODELS/GTA3.IMG",
-		"MODELS/TXD.IMG",
 		"DATA/DEFAULT.DAT",
 		"DATA/ANIMVIEWER.DAT",
-		"DATA/SPECIAL.TXT",
 	};
 	for(size_t i = 0; i < sizeof(required) / sizeof(required[0]); i++)
-		if(!exists(joinPath(root, required[i])))
+		if(!existsResolved(joinPath(root, required[i])))
 			missing.push_back(required[i]);
 
-	if(!isDir(joinPath(root, "MODELS")) || !dirHasExt(joinPath(root, "MODELS"), ".TXD"))
-		missing.push_back("MODELS/*.TXD");
-	if(!isDir(joinPath(root, "ANIM")) || !dirHasExt(joinPath(root, "ANIM"), ".IFP"))
+	// PC Vice City stores ped TXDs in GTA3.IMG on some installs, so TXD.IMG
+	// and loose model TXDs are accepted but not mandatory here. The RW
+	// backend validates each target's TXD exactly before baking.
+	if(!isDirResolved(joinPath(root, "ANIM")) || !dirHasExt(joinPath(root, "ANIM"), ".IFP"))
 		missing.push_back("ANIM/*.IFP");
 
 	std::sort(missing.begin(), missing.end());
@@ -362,7 +416,7 @@ addBuiltInTargets(std::map<int, PedBakeTarget> &targets)
 static void
 parseIdePeds(const std::string &assetRoot, const std::string &idePath, std::map<int, PedBakeTarget> &targets)
 {
-	std::ifstream f(joinPath(assetRoot, idePath).c_str());
+	std::ifstream f(resolvePath(joinPath(assetRoot, idePath)).c_str());
 	if(!f)
 		return;
 
@@ -416,7 +470,7 @@ parseLevelForIdeFiles(const std::string &assetRoot, const std::string &levelPath
 static void
 parseSpecialTargets(const std::string &assetRoot, std::map<int, PedBakeTarget> &targets)
 {
-	std::ifstream f(joinPath(assetRoot, "DATA/SPECIAL.TXT").c_str());
+	std::ifstream f(resolvePath(joinPath(assetRoot, "DATA/SPECIAL.TXT")).c_str());
 	if(!f)
 		return;
 

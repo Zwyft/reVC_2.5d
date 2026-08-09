@@ -47,9 +47,59 @@ exists(const std::string &path)
 }
 
 static bool
+isDir(const std::string &path)
+{
+	struct stat st;
+	return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static std::string
+resolvePath(const std::string &path)
+{
+	if(path.empty() || exists(path))
+		return path;
+	std::string out;
+	size_t pos = 0;
+	if(path[0] == '/'){
+		out = "/";
+		pos = 1;
+	}
+	while(pos <= path.size()){
+		size_t next = path.find_first_of("/\\", pos);
+		std::string part = path.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+		if(!part.empty() && part != "."){
+			std::string dir = out.empty() ? std::string(".") : out;
+			std::string candidate = joinPath(out, part);
+			if(!exists(candidate)){
+				DIR *d = opendir(dir.c_str());
+				bool found = false;
+				if(d){
+					std::string wanted = lower(part);
+					for(dirent *e = readdir(d); e; e = readdir(d)){
+						if(lower(e->d_name) == wanted){
+							candidate = joinPath(out, e->d_name);
+							found = true;
+							break;
+						}
+					}
+					closedir(d);
+				}
+				if(!found)
+					return path;
+			}
+			out = candidate;
+		}
+		if(next == std::string::npos)
+			break;
+		pos = next + 1;
+	}
+	return out;
+}
+
+static bool
 readFile(const std::string &path, std::vector<rw::uint8> &data)
 {
-	std::ifstream f(path.c_str(), std::ios::binary);
+	std::ifstream f(resolvePath(path).c_str(), std::ios::binary);
 	if(!f)
 		return false;
 	f.seekg(0, std::ios::end);
@@ -76,11 +126,13 @@ public:
 		mPath = path;
 		mEntries.clear();
 
-		if(!exists(path))
+		mPath = resolvePath(mPath);
+		std::string resolvedDirPath = resolvePath(dirPath);
+		if(!exists(mPath))
 			return false;
 
-		if(exists(dirPath)){
-			std::ifstream dir(dirPath.c_str(), std::ios::binary);
+		if(exists(resolvedDirPath)){
+			std::ifstream dir(resolvedDirPath.c_str(), std::ios::binary);
 			if(!dir)
 				return false;
 			dir.seekg(0, std::ios::end);
@@ -322,6 +374,13 @@ prepareClumpForBake(rw::Clump *clump, ClumpStats &stats)
 		stats.vertices += geometry->numVertices;
 		stats.triangles += geometry->numTriangles;
 		stats.materials += geometry->matList.numMaterials;
+
+		// The host baker renders clumps without inserting them into a world.
+		// GL3's default lighting path expects a current world when LIGHT is set,
+		// so bake flat textured pixels and apply sprite-style lighting afterward.
+		geometry->flags &= ~rw::Geometry::LIGHT;
+		geometry->flags |= rw::Geometry::MODULATE;
+
 		if((geometry->flags & rw::Geometry::NATIVE) && geometry->numVertices == 0)
 			stats.hasNativeOnlyGeometry = true;
 
@@ -355,6 +414,280 @@ validateClumpStats(const PedBakeTarget &target, const ClumpStats &stats, std::ve
 		ok = false;
 	}
 	return ok;
+}
+
+struct IfpKeyFrame
+{
+	rw::Quat rot;
+	rw::V3d trans;
+	float time;
+	bool hasTranslation;
+};
+
+struct IfpSequence
+{
+	std::string name;
+	int boneTag;
+	std::vector<IfpKeyFrame> keys;
+};
+
+struct IfpAnimation
+{
+	std::string name;
+	float duration;
+	std::vector<IfpSequence> sequences;
+};
+
+class IfpLibrary
+{
+public:
+	bool loadPedIfp(const std::string &assetRoot, std::vector<std::string> &errors)
+	{
+		std::vector<rw::uint8> bytes;
+		std::string path = joinPath(joinPath(assetRoot, "ANIM"), "PED.IFP");
+		if(!readFile(path, bytes)){
+			errors.push_back("could not read ANIM/PED.IFP for sprite animation sampling");
+			return false;
+		}
+		const rw::uint8 *data = bytes.data();
+		size_t size = bytes.size();
+		size_t off = 0;
+		Chunk anpk, info;
+		if(!readChunk(data, size, off, anpk) || anpk.ident != "ANPK" || !readChunk(data, size, off, info) || info.ident != "INFO"){
+			errors.push_back("ANIM/PED.IFP has unexpected header");
+			return false;
+		}
+		if(off + info.paddedSize() > size || info.size < 8){
+			errors.push_back("ANIM/PED.IFP has invalid INFO block");
+			return false;
+		}
+		int numAnimations = readS32(data + off);
+		off += info.paddedSize();
+		for(int i = 0; i < numAnimations; i++){
+			IfpAnimation anim;
+			Chunk name;
+			if(!readChunk(data, size, off, name) || name.ident != "NAME" || off + name.paddedSize() > size)
+				return fail(errors, "ANIM/PED.IFP has invalid animation NAME block");
+			anim.name = readCString(data + off, name.size);
+			off += name.paddedSize();
+
+			Chunk dgan, dginfo;
+			if(!readChunk(data, size, off, dgan) || dgan.ident != "DGAN" || !readChunk(data, size, off, dginfo) || dginfo.ident != "INFO" || off + dginfo.paddedSize() > size || dginfo.size < 4)
+				return fail(errors, "ANIM/PED.IFP has invalid DGAN block for " + anim.name);
+			int numSequences = readS32(data + off);
+			off += dginfo.paddedSize();
+			anim.duration = 0.0f;
+
+			for(int s = 0; s < numSequences; s++){
+				Chunk cpan, seqInfo;
+				if(!readChunk(data, size, off, cpan) || cpan.ident != "CPAN" || !readChunk(data, size, off, seqInfo) || seqInfo.ident != "ANIM" || off + seqInfo.paddedSize() > size || seqInfo.size < 32)
+					return fail(errors, "ANIM/PED.IFP has invalid CPAN block for " + anim.name);
+				IfpSequence seq;
+				seq.name = readCString(data + off, std::min<size_t>(seqInfo.size, 24));
+				int numFrames = readS32(data + off + 28);
+				seq.boneTag = seqInfo.size >= 44 ? readS32(data + off + 40) : 0;
+				off += seqInfo.paddedSize();
+				if(numFrames > 0){
+					Chunk keyInfo;
+					if(!readChunk(data, size, off, keyInfo))
+						return fail(errors, "ANIM/PED.IFP has missing key data for " + anim.name + ":" + seq.name);
+					int stride = 0;
+					bool hasTranslation = false;
+					bool hasScale = false;
+					if(keyInfo.ident == "KRTS"){
+						stride = 0x2C;
+						hasTranslation = true;
+						hasScale = true;
+					}else if(keyInfo.ident == "KRT0"){
+						stride = 0x20;
+						hasTranslation = true;
+					}else if(keyInfo.ident == "KR00"){
+						stride = 0x14;
+					}else
+						return fail(errors, "ANIM/PED.IFP has unsupported key block " + keyInfo.ident + " for " + anim.name + ":" + seq.name);
+					if(off + (size_t)stride * (size_t)numFrames > size)
+						return fail(errors, "ANIM/PED.IFP key data overruns file for " + anim.name + ":" + seq.name);
+					for(int k = 0; k < numFrames; k++){
+						const rw::uint8 *p = data + off + (size_t)stride * (size_t)k;
+						IfpKeyFrame key;
+						key.rot = rw::conj(rw::makeQuat(readF32(p + 12), readF32(p + 0), readF32(p + 4), readF32(p + 8)));
+						key.hasTranslation = hasTranslation;
+						key.trans = { 0.0f, 0.0f, 0.0f };
+						if(hasTranslation)
+							key.trans = { readF32(p + 16), readF32(p + 20), readF32(p + 24) };
+						key.time = readF32(p + (hasScale ? 40 : hasTranslation ? 28 : 16));
+						seq.keys.push_back(key);
+						anim.duration = std::max(anim.duration, key.time);
+					}
+					off += (size_t)stride * (size_t)numFrames;
+				}
+				anim.sequences.push_back(seq);
+			}
+			mAnimations[lower(anim.name)] = anim;
+		}
+		return true;
+	}
+
+	const IfpAnimation *find(const std::string &name) const
+	{
+		std::map<std::string, IfpAnimation>::const_iterator it = mAnimations.find(lower(name));
+		return it == mAnimations.end() ? nil : &it->second;
+	}
+
+private:
+	struct Chunk
+	{
+		std::string ident;
+		rw::uint32 size;
+		size_t paddedSize(void) const { return (size + 3u) & ~3u; }
+	};
+
+	static bool fail(std::vector<std::string> &errors, const std::string &message)
+	{
+		errors.push_back(message);
+		return false;
+	}
+
+	static bool readChunk(const rw::uint8 *data, size_t size, size_t &off, Chunk &chunk)
+	{
+		if(off + 8 > size)
+			return false;
+		chunk.ident.assign((const char*)data + off, 4);
+		chunk.size = readU32(data + off + 4);
+		off += 8;
+		return off <= size;
+	}
+
+	static rw::uint32 readU32(const rw::uint8 *p)
+	{
+		return (rw::uint32)p[0] | ((rw::uint32)p[1] << 8) | ((rw::uint32)p[2] << 16) | ((rw::uint32)p[3] << 24);
+	}
+
+	static int readS32(const rw::uint8 *p)
+	{
+		return (int)readU32(p);
+	}
+
+	static float readF32(const rw::uint8 *p)
+	{
+		float f;
+		std::memcpy(&f, p, sizeof(f));
+		return f;
+	}
+
+	static std::string readCString(const rw::uint8 *p, size_t maxLen)
+	{
+		size_t len = 0;
+		while(len < maxLen && p[len] != 0)
+			len++;
+		return std::string((const char*)p, len);
+	}
+
+	std::map<std::string, IfpAnimation> mAnimations;
+};
+
+struct SpriteStateAnim
+{
+	const char *state;
+	const char *anim;
+	float sample;
+	int durationMs;
+};
+
+static const SpriteStateAnim RequiredSpriteStateAnims[] = {
+	{ "idle", "IDLE_stance", 0.0f, 160 },
+	{ "walk", "WALK_civi", 0.35f, 110 },
+	{ "run", "run_civi", 0.35f, 90 },
+	{ "sprint", "sprint_civi", 0.35f, 80 },
+	{ "crouch", "DUCK_low", 0.55f, 140 },
+	{ "attack", "FIGHTpunch", 0.45f, 90 },
+	{ "firearm", "SHOT_partial", 0.55f, 90 },
+	{ "hit", "HIT_front", 0.45f, 120 },
+	{ "death", "KO_shot_front", 0.70f, 180 },
+	{ "car_sit", "CAR_sit", 0.0f, 160 },
+	{ "bike_ride", "BIKE_pullupL", 0.55f, 160 },
+	{ "enter_exit", "CAR_getin_LHS", 0.45f, 120 },
+};
+
+static bool
+sampleSequence(const IfpSequence &seq, float time, rw::Quat &rot, rw::V3d &trans, bool &hasTranslation)
+{
+	if(seq.keys.empty())
+		return false;
+	if(seq.keys.size() == 1 || time <= seq.keys.front().time){
+		rot = seq.keys.front().rot;
+		trans = seq.keys.front().trans;
+		hasTranslation = seq.keys.front().hasTranslation;
+		return true;
+	}
+	for(size_t i = 1; i < seq.keys.size(); i++){
+		const IfpKeyFrame &a = seq.keys[i - 1];
+		const IfpKeyFrame &b = seq.keys[i];
+		if(time <= b.time){
+			float span = b.time - a.time;
+			float t = span > 0.0f ? (time - a.time) / span : 0.0f;
+			rot = rw::slerp(a.rot, b.rot, t);
+			trans = rw::lerp(a.trans, b.trans, t);
+			hasTranslation = a.hasTranslation || b.hasTranslation;
+			return true;
+		}
+	}
+	rot = seq.keys.back().rot;
+	trans = seq.keys.back().trans;
+	hasTranslation = seq.keys.back().hasTranslation;
+	return true;
+}
+
+static const IfpSequence*
+findSequenceForNode(const IfpAnimation &anim, int boneTag)
+{
+	for(size_t i = 0; i < anim.sequences.size(); i++)
+		if(anim.sequences[i].boneTag == boneTag)
+			return &anim.sequences[i];
+	return nil;
+}
+
+static void
+applyAnimationPose(rw::Clump *clump, const IfpAnimation *anim, float sample)
+{
+	rw::HAnimHierarchy *hierarchy = findHAnimHierarchy(clump);
+	if(hierarchy == nil || hierarchy->matrices == nil)
+		return;
+
+	float time = anim && anim->duration > 0.0f ? anim->duration * sample : 0.0f;
+	rw::Matrix rootMat;
+	rootMat.setIdentity();
+	rw::Matrix *parentMat = &rootMat;
+	rw::Matrix *stack[64];
+	rw::Matrix **sp = stack;
+	*sp++ = parentMat;
+
+	for(int i = 0; i < hierarchy->numNodes; i++){
+		rw::Matrix local;
+		local.setIdentity();
+		if(hierarchy->nodeInfo[i].frame)
+			local = hierarchy->nodeInfo[i].frame->matrix;
+
+		const IfpSequence *seq = anim ? findSequenceForNode(*anim, hierarchy->nodeInfo[i].id) : nil;
+		if(seq){
+			rw::Quat rot;
+			rw::V3d trans;
+			bool hasTranslation = false;
+			if(sampleSequence(*seq, time, rot, trans, hasTranslation)){
+				rw::V3d basePos = local.pos;
+				local.setIdentity();
+				local.rotate(rot, rw::COMBINEREPLACE);
+				local.pos = hasTranslation ? trans : basePos;
+			}
+		}
+
+		rw::Matrix::mult(&hierarchy->matrices[hierarchy->nodeInfo[i].index], &local, parentMat);
+		if(hierarchy->nodeInfo[i].flags & rw::HAnimHierarchy::PUSH)
+			*sp++ = parentMat;
+		parentMat = &hierarchy->matrices[hierarchy->nodeInfo[i].index];
+		if(hierarchy->nodeInfo[i].flags & rw::HAnimHierarchy::POP)
+			parentMat = *--sp;
+	}
 }
 
 static bool
@@ -439,7 +772,8 @@ public:
 		}
 	}
 
-	bool captureIdleDirection(const PedBakeTarget &target, rw::Clump *clump, int direction, PedCapturedFrame &out, std::vector<std::string> &errors)
+	bool captureDirection(const PedBakeTarget &target, rw::Clump *clump, const SpriteStateAnim &state, int direction, PedCapturedFrame &out,
+	    std::vector<std::string> &errors)
 	{
 		if(!create(errors))
 			return false;
@@ -476,10 +810,10 @@ public:
 
 		out.modelId = target.id;
 		out.modelName = target.name;
-		out.state = "idle";
+		out.state = state.state;
 		out.direction = direction;
 		out.frameIndex = 0;
-		out.durationMs = 120;
+		out.durationMs = state.durationMs;
 		out.width = image->width;
 		out.height = image->height;
 		out.pivotX = 0.5f;
@@ -501,37 +835,48 @@ private:
 
 static bool
 captureAvailableFrames(const PedBakeTarget &target, rw::Clump *clump, RwCaptureContext &capture, std::vector<PedCapturedFrame> &frames,
-    std::vector<std::string> &errors)
+    const IfpLibrary &ifpLibrary, std::vector<std::string> &errors)
 {
-	for(int direction = 0; direction < 8; direction++){
-		PedCapturedFrame frame;
-		if(!capture.captureIdleDirection(target, clump, direction, frame, errors))
+	for(size_t stateIndex = 0; stateIndex < sizeof(RequiredSpriteStateAnims) / sizeof(RequiredSpriteStateAnims[0]); stateIndex++){
+		const SpriteStateAnim &state = RequiredSpriteStateAnims[stateIndex];
+		const IfpAnimation *anim = ifpLibrary.find(state.anim);
+		if(anim == nil){
+			errors.push_back("missing required PED.IFP animation " + std::string(state.anim) + " for sprite state " + state.state);
 			return false;
-		frames.push_back(frame);
+		}
+		applyAnimationPose(clump, anim, state.sample);
+		for(int direction = 0; direction < 8; direction++){
+			PedCapturedFrame frame;
+			if(!capture.captureDirection(target, clump, state, direction, frame, errors))
+				return false;
+			frames.push_back(frame);
+		}
 	}
 	return true;
 }
 #else
 static bool
-captureAvailableFrames(const PedBakeTarget &target, rw::Clump *clump, std::vector<PedCapturedFrame> &frames, std::vector<std::string> &errors)
+captureAvailableFrames(const PedBakeTarget &target, rw::Clump *clump, std::vector<PedCapturedFrame> &frames, const IfpLibrary &ifpLibrary,
+    std::vector<std::string> &errors)
 {
 	(void)target;
 	(void)clump;
 	(void)frames;
+	(void)ifpLibrary;
 	errors.push_back("real frame capture requires a baker built with LIBRW_PLATFORM=GL3");
 	return false;
 }
 #endif
 
 static bool
-loadTxd(const std::string &assetRoot, const ImgArchive &txdImg, const std::string &modelName, rw::TexDictionary **out)
+loadTxd(const std::string &assetRoot, const ImgArchive &gtaImg, const ImgArchive &txdImg, const std::string &modelName, rw::TexDictionary **out)
 {
 	std::vector<rw::uint8> bytes;
 	const std::string fileName = lower(modelName) + ".txd";
 	std::string loose = joinPath(joinPath(assetRoot, "MODELS"), modelName + ".TXD");
 	if(!readFile(loose, bytes)){
 		loose = joinPath(joinPath(assetRoot, "MODELS"), fileName);
-		if(!readFile(loose, bytes) && !txdImg.readEntry(fileName, bytes))
+		if(!readFile(loose, bytes) && !txdImg.readEntry(fileName, bytes) && !gtaImg.readEntry(fileName, bytes))
 			return false;
 	}
 
@@ -567,7 +912,7 @@ scanIfpFile(const std::string &path, int &animationChunks)
 static bool
 scanRequiredIfps(const std::string &assetRoot, std::vector<std::string> &errors)
 {
-	std::string animDir = joinPath(assetRoot, "ANIM");
+	std::string animDir = resolvePath(joinPath(assetRoot, "ANIM"));
 	DIR *dir = opendir(animDir.c_str());
 	if(dir == NULL){
 		errors.push_back("missing ANIM directory");
@@ -627,14 +972,18 @@ RunPedSpriteBakeBackend(const PedBakeBackendOptions &options)
 #ifdef RW_GL3
 	RwCaptureContext captureContext;
 #endif
+	IfpLibrary ifpLibrary;
 
 	ImgArchive gtaImg;
 	ImgArchive txdImg;
 	std::string modelDir = joinPath(options.assetRoot, "MODELS");
 	if(!gtaImg.open(joinPath(modelDir, "GTA3.IMG"), joinPath(modelDir, "GTA3.DIR")))
 		errors.push_back("could not read MODELS/GTA3.IMG directory data; expected MODELS/GTA3.DIR sidecar or embedded IMG directory");
-	if(!txdImg.open(joinPath(modelDir, "TXD.IMG"), joinPath(modelDir, "TXD.DIR")))
-		errors.push_back("could not read MODELS/TXD.IMG directory data; expected MODELS/TXD.DIR sidecar or embedded IMG directory");
+	bool haveTxdImg = txdImg.open(joinPath(modelDir, "TXD.IMG"), joinPath(modelDir, "TXD.DIR"));
+	if(!haveTxdImg)
+		std::printf("No MODELS/TXD.IMG found; ped TXDs will be loaded from loose MODELS/*.TXD or GTA3.IMG.\n");
+	if(!options.validateOnly)
+		ifpLibrary.loadPedIfp(options.assetRoot, errors);
 
 	if(errors.empty()){
 		int loaded = 0;
@@ -643,7 +992,7 @@ RunPedSpriteBakeBackend(const PedBakeBackendOptions &options)
 			const PedBakeTarget &target = options.targets[i];
 			rw::TexDictionary *txd = nil;
 			rw::Clump *clump = nil;
-			if(!loadTxd(options.assetRoot, txdImg, target.name, &txd))
+			if(!loadTxd(options.assetRoot, gtaImg, txdImg, target.name, &txd))
 				errors.push_back("missing/unreadable TXD for model " + std::to_string(target.id) + " " + target.name);
 			else
 				rw::TexDictionary::setCurrent(txd);
@@ -657,9 +1006,9 @@ RunPedSpriteBakeBackend(const PedBakeBackendOptions &options)
 					loaded++;
 					if(!options.validateOnly){
 #ifdef RW_GL3
-						captureAvailableFrames(target, clump, captureContext, capturedFrames, errors);
+						captureAvailableFrames(target, clump, captureContext, capturedFrames, ifpLibrary, errors);
 #else
-						captureAvailableFrames(target, clump, capturedFrames, errors);
+						captureAvailableFrames(target, clump, capturedFrames, ifpLibrary, errors);
 #endif
 					}
 					std::ostringstream line;
@@ -697,7 +1046,7 @@ RunPedSpriteBakeBackend(const PedBakeBackendOptions &options)
 		return 0;
 
 	if(!capturedFrames.empty())
-		std::printf("Captured %zu neutral RenderWare frame(s); animation-state binding is still required for complete atlases.\n", capturedFrames.size());
+		std::printf("Captured %zu RenderWare animation frame(s).\n", capturedFrames.size());
 	if(!WritePedSpriteAtlases(options.outputRoot, options.targets, capturedFrames, errors)){
 		std::fprintf(stderr, "Ped sprite atlas generation failed:\n");
 		for(size_t i = 0; i < errors.size(); i++)
