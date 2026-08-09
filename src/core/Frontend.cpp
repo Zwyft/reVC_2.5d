@@ -638,8 +638,10 @@ CMenuManager::CentreMousePointer()
 #elif defined(RW_GL3) && defined(LIBRW_SDL2)
         SDL_WarpMouseInWindow(PSGLOBAL(window), SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
 #endif
+#if defined RW_D3D9 || defined RWLIBS || defined RW_GL3
 		PSGLOBAL(lastMousePos.x) = SCREEN_WIDTH / 2;
 		PSGLOBAL(lastMousePos.y) = SCREEN_HEIGHT / 2;
+#endif
 	}
 }
 
@@ -4940,7 +4942,7 @@ CMenuManager::ProcessUserInput(uint8 goDown, uint8 goUp, uint8 optionSelected, u
 					ControlsManager.MakeControllerActionsBlank();
 					ControlsManager.InitDefaultControlConfiguration();
 					ControlsManager.InitDefaultControlConfigMouse(MousePointerStateHelper.GetMouseSetUp());
-#if !defined RW_GL3
+#if defined RW_D3D9 || defined RWLIBS
 					if (AllValidWinJoys.m_aJoys[JOYSTICK1].m_bInitialised) {
 						DIDEVCAPS devCaps;
 						devCaps.dwSize = sizeof(DIDEVCAPS);
@@ -4954,7 +4956,7 @@ CMenuManager::ProcessUserInput(uint8 goDown, uint8 goUp, uint8 optionSelected, u
                         SDL_JoystickClose(joy1);
                         ControlsManager.InitDefaultControlConfigJoyPad(count);
                     }*/
-#else
+#elif defined RW_GL3 && !defined LIBRW_SDL2
 					if (PSGLOBAL(joy1id) != -1 && glfwJoystickPresent(PSGLOBAL(joy1id))) {
 						int count;
 						glfwGetJoystickButtons(PSGLOBAL(joy1id), &count);

@@ -95,7 +95,7 @@ android {
 
 def revcSpriteRoot = providers.gradleProperty("revcSpriteOutput")
         .orElse(providers.environmentVariable("REVC_SPRITE_OUTPUT"))
-        .orElse("${rootProject.projectDir}/../../generated/sprites")
+        .orElse("${rootProject.projectDir}/../../generated-sprites")
 
 def revcVcAssetRoot = providers.gradleProperty("revcVcAssetRoot")
         .orElse(providers.environmentVariable("REVC_VC_ASSET_ROOT"))
@@ -148,11 +148,11 @@ tasks.register("copyOwnedVcAssets", Copy) {
             }
         }
         if (!hasAnyFile(["MODELS/GTA3.IMG", "models/gta3.img"])) missing << "MODELS/GTA3.IMG"
-        if (!hasAnyFile(["MODELS/TXD.IMG", "models/txd.img"])) missing << "MODELS/TXD.IMG"
-        if (!hasAnyGlob(["MODELS", "models"], ".txd")) missing << "MODELS/*.TXD"
+        // Retail PC installs can keep ped TXDs inside GTA3.IMG instead of TXD.IMG or loose TXDs.
+        // Native startup validates the archive contents as needed.
         if (!hasAnyFile(["DATA/DEFAULT.DAT", "data/default.dat"])) missing << "DATA/DEFAULT.DAT"
         if (!hasAnyFile(["DATA/GTA_VC.DAT", "data/gta_vc.dat", "DATA/GTA3.DAT", "data/gta3.dat"])) missing << "DATA/GTA_VC.DAT"
-        if (!hasAnyFile(["DATA/SPECIAL.TXT", "data/special.txt"])) missing << "DATA/SPECIAL.TXT"
+        // DATA/SPECIAL.TXT is optional on retail PC installs; mission specials are discovered when present.
         if (!hasAnyGlob(["ANIM", "anim"], ".ifp")) missing << "ANIM/*.IFP"
         if (!missing.isEmpty()) {
             throw new GradleException("Invalid reVC owned asset root ${root}. Missing:\n - " + missing.join("\n - "))

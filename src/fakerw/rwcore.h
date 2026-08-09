@@ -15,8 +15,61 @@
  ***********************************************
  */
 
+#ifdef RWDEVICE
 typedef rw::RWDEVICE::Im2DVertex RwIm2DVertex;
 typedef rw::RWDEVICE::Im3DVertex RwIm3DVertex;
+#else
+struct RwIm2DVertex
+{
+	RwReal x, y, z, w;
+	RwUInt8 r, g, b, a;
+	RwReal u, v;
+
+	void setScreenX(RwReal value) { x = value; }
+	void setScreenY(RwReal value) { y = value; }
+	void setScreenZ(RwReal value) { z = value; }
+	void setCameraZ(RwReal value) { w = value; }
+	void setRecipCameraZ(RwReal value) { w = value == 0.0f ? 0.0f : 1.0f / value; }
+	void setColor(RwUInt8 red, RwUInt8 green, RwUInt8 blue, RwUInt8 alpha)
+	{
+		r = red;
+		g = green;
+		b = blue;
+		a = alpha;
+	}
+	void setU(RwReal value, RwReal) { u = value; }
+	void setV(RwReal value, RwReal) { v = value; }
+
+	RwReal getScreenX(void) const { return x; }
+	RwReal getScreenY(void) const { return y; }
+	RwReal getScreenZ(void) const { return z; }
+	RwReal getCameraZ(void) const { return w; }
+	RwReal getRecipCameraZ(void) const { return w == 0.0f ? 0.0f : 1.0f / w; }
+	RwReal getU(void) const { return u; }
+	RwReal getV(void) const { return v; }
+};
+
+struct RwIm3DVertex
+{
+	RwV3d position;
+	RwV3d normal;
+	RwUInt8 r, g, b, a;
+	RwReal u, v;
+
+	void setX(RwReal value) { position.x = value; }
+	void setY(RwReal value) { position.y = value; }
+	void setZ(RwReal value) { position.z = value; }
+	void setU(RwReal value) { u = value; }
+	void setV(RwReal value) { v = value; }
+	void setColor(RwUInt8 red, RwUInt8 green, RwUInt8 blue, RwUInt8 alpha)
+	{
+		r = red;
+		g = green;
+		b = blue;
+		a = alpha;
+	}
+};
+#endif
 typedef RwUInt16 RwImVertexIndex;
 
 enum RwIm3DTransformFlags

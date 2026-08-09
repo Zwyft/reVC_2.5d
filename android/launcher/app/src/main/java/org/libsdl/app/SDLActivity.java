@@ -714,14 +714,9 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     private void validateRevcStorageRoot(File root) throws IOException {
         List<String> missing = new ArrayList<String>();
         requireAnyFile(root, missing, "MODELS/GTA3.IMG", "MODELS/GTA3.IMG", "models/gta3.img");
-        requireAnyFile(root, missing, "MODELS/TXD.IMG", "MODELS/TXD.IMG", "models/txd.img");
         requireAnyFile(root, missing, "DATA/DEFAULT.DAT", "DATA/DEFAULT.DAT", "data/default.dat");
         requireAnyFile(root, missing, "DATA/GTA_VC.DAT", "DATA/GTA_VC.DAT", "data/gta_vc.dat", "DATA/GTA3.DAT", "data/gta3.dat");
-        requireAnyFile(root, missing, "DATA/SPECIAL.TXT", "DATA/SPECIAL.TXT", "data/special.txt");
         requireAnyFile(root, missing, "sprites/peds/manifest.txt", "sprites/peds/manifest.txt");
-        if (!hasFileWithSuffix(root, new String[] { "MODELS", "models" }, ".txd")) {
-            missing.add("MODELS/*.TXD");
-        }
         if (!hasFileWithSuffix(root, new String[] { "ANIM", "anim" }, ".ifp")) {
             missing.add("ANIM/*.IFP");
         }

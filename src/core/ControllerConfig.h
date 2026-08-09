@@ -5,6 +5,7 @@
 
 #if defined RW_D3D9 || defined RWLIBS
 #define DIRECTINPUT_VERSION 0x0800
+#define GTA_HAS_DIRECTINPUT
 #include <dinput.h>
 #endif
 
@@ -109,7 +110,7 @@ class CControllerState;
 
 #define ACTIONNAME_LENGTH 40
 
-#ifdef RW_GL3
+#if defined RW_GL3 || !defined GTA_HAS_DIRECTINPUT
 struct JoyState {
     int8 id;
     bool isGamepad;
@@ -135,12 +136,12 @@ public:
 	};
 
 	bool                  m_bFirstCapture;
-#if defined RW_GL3
-    JoyState              m_OldState;
-    JoyState              m_NewState;
-#else
+#ifdef GTA_HAS_DIRECTINPUT
 	DIJOYSTATE2           m_OldState;
 	DIJOYSTATE2           m_NewState;
+#else
+    JoyState              m_OldState;
+    JoyState              m_NewState;
 #endif
 	wchar                 m_aActionNames[MAX_CONTROLLERACTIONS][ACTIONNAME_LENGTH];
 	bool                  m_aButtonStates[MAX_BUTTONS];

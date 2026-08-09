@@ -565,6 +565,7 @@ RwBool RwEngineInit(RwMemoryFunctions *memFuncs, RwUInt32 initFlags, RwUInt32 re
 }
 // TODO: this is platform dependent
 RwBool RwEngineOpen(RwEngineOpenParams *initParams) {
+#ifdef RWDEVICE
 	static EngineOpenParams openParams;
 #ifdef RW_D3D9
 	openParams.window = (HWND)initParams->displayID;
@@ -572,6 +573,10 @@ RwBool RwEngineOpen(RwEngineOpenParams *initParams) {
 	openParams = *(EngineOpenParams*)initParams->displayID;
 #endif
 	return Engine::open(&openParams);
+#else
+	(void)initParams;
+	return Engine::open(nil);
+#endif
 }
 RwBool RwEngineStart(void) {
 	rw::d3d::isP8supported = false;

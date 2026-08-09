@@ -1,5 +1,6 @@
 #include "common.h"
 
+#include <cstdarg>
 #include <vector>
 
 #include "AnimBlendAssociation.h"

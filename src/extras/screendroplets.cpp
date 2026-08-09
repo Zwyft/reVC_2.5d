@@ -49,7 +49,7 @@ float ScreenDroplets::ms_camUpAngle;
 int ScreenDroplets::ms_splashDuration;
 CParticleObject *ScreenDroplets::ms_splashObject;
 
-struct Im2DVertexUV2 : rw::RWDEVICE::Im2DVertex
+struct Im2DVertexUV2 : RwIm2DVertex
 {
 	rw::float32 u2, v2;
 };

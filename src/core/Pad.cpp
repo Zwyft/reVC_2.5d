@@ -869,7 +869,7 @@ CMouseControllerState CMousePointerStateHelper::GetMouseSetUp()
 			state.WHEELUP = true;
 		}
 	}
-#else
+#elif defined RW_GL3
 	// It seems there is no way to get number of buttons on mouse, so assign all buttons if we have mouse.
 #if !defined(LIBRW_SDL2)
     double xpos = 1.0f, ypos;
@@ -932,7 +932,7 @@ void CPad::UpdateMouse()
 			NewMouseControllerState = PCTempMouseControllerState;
 		}
 	}
-#else
+#elif defined RW_GL3
 	if ( IsForegroundApp() && PSGLOBAL(cursorIsInWindow) )
 	{
 #ifdef LIBRW_SDL2
@@ -1695,7 +1695,7 @@ void CPad::UpdatePads(void)
 #ifdef XINPUT
 	GetPad(0)->AffectFromXinput(m_bMapPadOneToPadTwo ? 1 : 0);
 	GetPad(1)->AffectFromXinput(m_bMapPadOneToPadTwo ? 0 : 1);
-#else
+#elif defined RW_GL3
 	CapturePad(0);
 #endif
 

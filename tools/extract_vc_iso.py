@@ -19,10 +19,8 @@ SECTOR_SIZE = 2048
 PVD_SECTOR = 16
 REQUIRED_FILES = (
     "MODELS/GTA3.IMG",
-    "MODELS/TXD.IMG",
     "DATA/DEFAULT.DAT",
     "DATA/ANIMVIEWER.DAT",
-    "DATA/SPECIAL.TXT",
 )
 
 
@@ -155,10 +153,9 @@ def extract_entries(iso_file: pathlib.Path, output_root: pathlib.Path, entries: 
 
 def validate_asset_root(asset_root: pathlib.Path) -> list[str]:
     missing = [path for path in REQUIRED_FILES if not asset_root.joinpath(*path.split("/")).exists()]
-    models = asset_root / "MODELS"
     anim = asset_root / "ANIM"
-    if not models.is_dir() or not any(p.suffix.upper() == ".TXD" for p in models.iterdir()):
-        missing.append("MODELS/*.TXD")
+    # Retail PC installs can store ped TXDs in GTA3.IMG and may not include
+    # DATA/SPECIAL.TXT. The baker validates per-model TXD availability later.
     if not anim.is_dir() or not any(p.suffix.upper() == ".IFP" for p in anim.iterdir()):
         missing.append("ANIM/*.IFP")
     return sorted(missing)

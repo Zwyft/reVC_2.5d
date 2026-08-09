@@ -1,6 +1,6 @@
 # reVC Ped Sprite Baker Contract
 
-The baker reads a local, user-owned GTA Vice City asset root. Original GTA assets and generated sprite atlases must stay out of git. Configure the asset root with `--asset-root` or `REVC_VC_ASSET_ROOT`; configure generated output with `--output` or `REVC_SPRITE_OUTPUT`. Android personal builds can package owned local assets with `-PrevcVcAssetRoot=/path/to/owned/GTA Vice City` or `REVC_VC_ASSET_ROOT`, and can package generated sprites with `-PrevcSpriteOutput=/path/to/generated/sprites`.
+The baker reads a local, user-owned GTA Vice City asset root. Original GTA assets and generated sprite atlases must stay out of git. Configure the asset root with `--asset-root` or `REVC_VC_ASSET_ROOT`; configure generated output with `--output` or `REVC_SPRITE_OUTPUT`. Android personal builds can package owned local assets with `-PrevcVcAssetRoot=/path/to/owned/GTA Vice City` or `REVC_VC_ASSET_ROOT`, and can package generated sprites with `-PrevcSpriteOutput=/path/to/generated-sprites`.
 
 
 ## Local ISO extraction
@@ -25,11 +25,11 @@ sudo apt install -y libmpg123-dev unshield xvfb
 Required input files:
 
 - `MODELS/GTA3.IMG`
-- `MODELS/TXD.IMG`
-- `MODELS/*.TXD`
+- `MODELS/TXD.IMG` or ped TXDs stored in `MODELS/GTA3.IMG`
+- Optional loose `MODELS/*.TXD` when present
 - `DATA/DEFAULT.DAT`
 - `DATA/ANIMVIEWER.DAT`
-- `DATA/SPECIAL.TXT`
+- Optional `DATA/SPECIAL.TXT` when present
 - `ANIM/*.IFP`
 
 Generated output root layout:
@@ -47,9 +47,9 @@ atlas <atlas_name> <png_path> <width> <height>
 frame <model_id> <state> <direction> <frame_index> <duration_ms> <atlas_name> <x> <y> <w> <h> <pivot_x> <pivot_y> <world_height>
 ```
 
-Run `revc_ped_sprite_baker --emit-bake-plan --asset-root <owned GTA VC root> --output <generated sprite output>` to validate the owned asset root and write `sprites/peds/bake-plan.txt`. The bake plan lists deterministic target models discovered from built-in VC ped model ids, IDE `peds` sections referenced by `DATA/DEFAULT.DAT`/`DATA/ANIMVIEWER.DAT`, and mission specials listed in `DATA/SPECIAL.TXT`. It is an intermediate input for the real render backend; it is not a placeholder atlas and is not used by runtime rendering.
+Run `revc_ped_sprite_baker --emit-bake-plan --asset-root <owned GTA VC root> --output <generated sprite output>` to validate the owned asset root and write `sprites/peds/bake-plan.txt`. The bake plan lists deterministic target models discovered from built-in VC ped model ids, IDE `peds` sections referenced by `DATA/DEFAULT.DAT`/`DATA/ANIMVIEWER.DAT`, and mission specials listed in `DATA/SPECIAL.TXT` when present. It is an intermediate input for the real render backend; it is not a placeholder atlas and is not used by runtime rendering.
 
-Run `revc_ped_sprite_baker --validate-rw-assets --asset-root <owned GTA VC root> --output <generated sprite output>` from a repo-root build to validate the real RenderWare input path. This loads discovered ped DFFs from `MODELS/GTA3.IMG` plus `MODELS/GTA3.DIR` when present, loads TXDs from loose `MODELS/*.TXD` or `MODELS/TXD.IMG` plus `MODELS/TXD.DIR`, scans `ANIM/*.IFP`, attaches skinned atomics to discovered HAnim hierarchies, validates renderable geometry, and writes `sprites/peds/backend-report.txt` with deterministic geometry/skeleton stats. It creates the offscreen target descriptor used by the upcoming GL capture path but does not write placeholder atlases.
+Run `revc_ped_sprite_baker --validate-rw-assets --asset-root <owned GTA VC root> --output <generated sprite output>` from a repo-root build to validate the real RenderWare input path. This loads discovered ped DFFs from `MODELS/GTA3.IMG` plus `MODELS/GTA3.DIR` when present, loads TXDs from loose `MODELS/*.TXD`, `MODELS/TXD.IMG` plus `MODELS/TXD.DIR`, or `MODELS/GTA3.IMG`, scans `ANIM/*.IFP`, attaches skinned atomics to discovered HAnim hierarchies, validates renderable geometry, and writes `sprites/peds/backend-report.txt` with deterministic geometry/skeleton stats. It creates the offscreen target descriptor used by the upcoming GL capture path but does not write placeholder atlases.
 
 Running the baker without `--validate-rw-assets` performs the same validation and then requires real captured frame pixels for every discovered model, required state, and direction before writing `sprites/peds/*.png` plus `sprites/peds/manifest.txt`. Atlas generation fails if any model/state/direction frame is missing; it does not create transparent or synthetic substitute frames. For headless GL3 baking, run the GL3-built baker under an X/Wayland session or `xvfb-run`; the baker refuses to start GL3 capture without a graphics session.
 
