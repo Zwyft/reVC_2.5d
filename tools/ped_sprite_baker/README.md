@@ -1,6 +1,6 @@
 # reVC Ped Sprite Baker Contract
 
-The baker reads a local, user-owned GTA Vice City asset root. Original GTA assets and generated sprite atlases must stay out of git. Configure the asset root with `--asset-root` or `REVC_VC_ASSET_ROOT`; configure generated output with `--output` or `REVC_SPRITE_OUTPUT`. Android packaging can also use `-PrevcSpriteOutput=/path/to/generated/sprites`.
+The baker reads a local, user-owned GTA Vice City asset root. Original GTA assets and generated sprite atlases must stay out of git. Configure the asset root with `--asset-root` or `REVC_VC_ASSET_ROOT`; configure generated output with `--output` or `REVC_SPRITE_OUTPUT`. Android personal builds can package owned local assets with `-PrevcVcAssetRoot=/path/to/owned/GTA Vice City` or `REVC_VC_ASSET_ROOT`, and can package generated sprites with `-PrevcSpriteOutput=/path/to/generated/sprites`.
 
 Required input files:
 

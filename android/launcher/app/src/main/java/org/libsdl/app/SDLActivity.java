@@ -56,7 +56,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Hashtable;
+import java.util.List;
 import java.util.Locale;
 
 
@@ -458,15 +460,79 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
         AssetManager assets = getAssets();
         copyAssetTree(assets, "data", root);
+        copyAssetTree(assets, "DATA", root);
         copyAssetTree(assets, "models", root);
+        copyAssetTree(assets, "MODELS", root);
+        copyAssetTree(assets, "anim", root);
+        copyAssetTree(assets, "ANIM", root);
+        copyAssetTree(assets, "audio", root);
+        copyAssetTree(assets, "AUDIO", root);
         copyAssetTree(assets, "TEXT", root);
         copyAssetTree(assets, "neo", root);
         copyAssetTree(assets, "sprites", root);
         copyAssetFileIfPresent(assets, "gamecontrollerdb.txt", new File(root, "gamecontrollerdb.txt"));
 
-        String storageRoot = root.getAbsolutePath() + File.separator;
+        validateRevcStorageRoot(root);
+
+        String storageRoot = root.getAbsolutePath();
         SDLActivity.nativeSetenv("STORAGE_ROOT", storageRoot);
         Log.v(TAG, "STORAGE_ROOT=" + storageRoot);
+    }
+
+    private void validateRevcStorageRoot(File root) throws IOException {
+        List<String> missing = new ArrayList<String>();
+        requireAnyFile(root, missing, "MODELS/GTA3.IMG", "MODELS/GTA3.IMG", "models/gta3.img");
+        requireAnyFile(root, missing, "MODELS/TXD.IMG", "MODELS/TXD.IMG", "models/txd.img");
+        requireAnyFile(root, missing, "DATA/DEFAULT.DAT", "DATA/DEFAULT.DAT", "data/default.dat");
+        requireAnyFile(root, missing, "DATA/GTA_VC.DAT", "DATA/GTA_VC.DAT", "data/gta_vc.dat", "DATA/GTA3.DAT", "data/gta3.dat");
+        requireAnyFile(root, missing, "DATA/SPECIAL.TXT", "DATA/SPECIAL.TXT", "data/special.txt");
+        requireAnyFile(root, missing, "sprites/peds/manifest.txt", "sprites/peds/manifest.txt");
+        if (!hasFileWithSuffix(root, new String[] { "MODELS", "models" }, ".txd")) {
+            missing.add("MODELS/*.TXD");
+        }
+        if (!hasFileWithSuffix(root, new String[] { "ANIM", "anim" }, ".ifp")) {
+            missing.add("ANIM/*.IFP");
+        }
+        if (!missing.isEmpty()) {
+            throw new IOException("Missing required game data under " + root.getAbsolutePath() + ":\n - " + joinStrings(missing, "\n - ")
+                    + "\n\nBuild a personal APK with -PrevcVcAssetRoot=/path/to/your/GTA Vice City folder or set REVC_VC_ASSET_ROOT.");
+        }
+    }
+
+    private void requireAnyFile(File root, List<String> missing, String label, String... candidates) {
+        for (String candidate : candidates) {
+            if (new File(root, candidate).isFile()) {
+                return;
+            }
+        }
+        missing.add(label);
+    }
+
+    private boolean hasFileWithSuffix(File root, String[] dirs, String suffix) {
+        for (String dirName : dirs) {
+            File dir = new File(root, dirName);
+            File[] files = dir.listFiles();
+            if (files == null) {
+                continue;
+            }
+            for (File file : files) {
+                if (file.isFile() && file.getName().toLowerCase(Locale.ROOT).endsWith(suffix)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private String joinStrings(List<String> values, String separator) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < values.size(); i++) {
+            if (i != 0) {
+                builder.append(separator);
+            }
+            builder.append(values.get(i));
+        }
+        return builder.toString();
     }
 
     private void copyAssetTree(AssetManager assets, String path, File root) throws IOException {

@@ -76,7 +76,6 @@ android {
     }
 
     buildFeatures {
-        viewBinding true
         buildConfig = true
     }
 
@@ -88,6 +87,7 @@ android {
             jniLibs.srcDir "${rootProject.projectDir}/../../vendor/mpg123/lib/Android"
             assets.srcDirs += "$buildDir/generated/revcSpriteAssets"
             assets.srcDirs += "$buildDir/generated/revcGamefiles"
+            assets.srcDirs += "$buildDir/generated/revcOwnedVcAssets"
         }
     }
 }
@@ -96,6 +96,9 @@ android {
 def revcSpriteRoot = providers.gradleProperty("revcSpriteOutput")
         .orElse(providers.environmentVariable("REVC_SPRITE_OUTPUT"))
         .orElse("${rootProject.projectDir}/../../generated/sprites")
+
+def revcVcAssetRoot = providers.gradleProperty("revcVcAssetRoot")
+        .orElse(providers.environmentVariable("REVC_VC_ASSET_ROOT"))
 
 tasks.register("copyPedSpriteAssets", Copy) {
     def sourceDir = revcSpriteRoot.map { file(it) }
@@ -122,18 +125,51 @@ tasks.register("copyRevcGamefiles", Copy) {
     into layout.buildDirectory.dir("generated/revcGamefiles")
 }
 
+tasks.register("copyOwnedVcAssets", Copy) {
+    def configuredRoot = revcVcAssetRoot
+    onlyIf { configuredRoot.isPresent() }
+    from(configuredRoot.map { file(it) }) {
+        include "DATA/**", "data/**"
+        include "MODELS/**", "models/**"
+        include "ANIM/**", "anim/**"
+        include "AUDIO/**", "audio/**"
+        include "TEXT/**", "text/**"
+    }
+    into layout.buildDirectory.dir("generated/revcOwnedVcAssets")
+    doFirst {
+        def root = file(configuredRoot.get())
+        def missing = []
+        def hasFile = { String path -> new File(root, path).isFile() }
+        def hasAnyFile = { List<String> paths -> paths.any { hasFile(it) } }
+        def hasAnyGlob = { List<String> dirs, String suffix ->
+            dirs.any { name ->
+                def dir = new File(root, name)
+                dir.isDirectory() && (dir.listFiles()?.any { it.isFile() && it.name.toLowerCase(Locale.ROOT).endsWith(suffix) } ?: false)
+            }
+        }
+        if (!hasAnyFile(["MODELS/GTA3.IMG", "models/gta3.img"])) missing << "MODELS/GTA3.IMG"
+        if (!hasAnyFile(["MODELS/TXD.IMG", "models/txd.img"])) missing << "MODELS/TXD.IMG"
+        if (!hasAnyGlob(["MODELS", "models"], ".txd")) missing << "MODELS/*.TXD"
+        if (!hasAnyFile(["DATA/DEFAULT.DAT", "data/default.dat"])) missing << "DATA/DEFAULT.DAT"
+        if (!hasAnyFile(["DATA/GTA_VC.DAT", "data/gta_vc.dat", "DATA/GTA3.DAT", "data/gta3.dat"])) missing << "DATA/GTA_VC.DAT"
+        if (!hasAnyFile(["DATA/SPECIAL.TXT", "data/special.txt"])) missing << "DATA/SPECIAL.TXT"
+        if (!hasAnyGlob(["ANIM", "anim"], ".ifp")) missing << "ANIM/*.IFP"
+        if (!missing.isEmpty()) {
+            throw new GradleException("Invalid reVC owned asset root ${root}. Missing:\n - " + missing.join("\n - "))
+        }
+    }
+}
+
 
 tasks.named("preBuild").configure {
     dependsOn tasks.named("copyPedSpriteAssets")
     dependsOn tasks.named("copyRevcGamefiles")
+    dependsOn tasks.named("copyOwnedVcAssets")
 }
 
 dependencies {
     implementation fileTree(dir: "libs", include: ["*.jar"])
 
-    implementation libs.appcompat
-    implementation libs.material
-    implementation libs.constraintlayout
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit
     androidTestImplementation libs.espresso.core

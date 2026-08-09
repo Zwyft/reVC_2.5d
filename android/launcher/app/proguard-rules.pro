@@ -118,9 +118,6 @@
     void hapticStop(int);
 }
 
- -dontwarn com.revc.game.MainActivity*
- -keep class com.revc.game.MainActivity { *; }
-
  -dontwarn androidx.**
  -keep class androidx.** { *; }
 
