@@ -48,6 +48,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -394,20 +395,7 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         try {
             prepareRevcStorageRoot();
         } catch (IOException e) {
-            AlertDialog.Builder dlgAlert = new AlertDialog.Builder(this);
-            dlgAlert.setMessage("Unable to prepare reVC game data."
-                    + System.getProperty("line.separator")
-                    + System.getProperty("line.separator")
-                    + "Error: " + e.getMessage());
-            dlgAlert.setTitle("reVC Data Error");
-            dlgAlert.setPositiveButton("Exit", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int id) {
-                    SDLActivity.mSingleton.finish();
-                }
-            });
-            dlgAlert.setCancelable(false);
-            dlgAlert.create().show();
+            showStartupErrorScreen("reVC Data Error", "Unable to prepare reVC game data.\n\n" + e.getMessage());
             return;
         }
 
@@ -450,6 +438,52 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
                 SDLActivity.onNativeDropFile(filename);
             }
         }
+    }
+
+    private void showStartupErrorScreen(String title, String message) {
+        int padding = dp(24);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(Gravity.CENTER_VERTICAL);
+        content.setPadding(padding, padding, padding, padding);
+        content.setBackgroundColor(Color.rgb(18, 18, 18));
+
+        TextView heading = new TextView(this);
+        heading.setText(title);
+        heading.setTextColor(Color.WHITE);
+        heading.setTextSize(24);
+        heading.setGravity(Gravity.START);
+        content.addView(heading, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView body = new TextView(this);
+        body.setText(message);
+        body.setTextColor(Color.rgb(230, 230, 230));
+        body.setTextSize(14);
+        body.setPadding(0, dp(16), 0, dp(16));
+        body.setTextIsSelectable(true);
+        content.addView(body, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        Button close = new Button(this);
+        close.setText("Close");
+        close.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                SDLActivity.this.finish();
+            }
+        });
+        content.addView(close, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        setContentView(scroll);
+    }
+
+    private int dp(int value) {
+        return (int)(value * getResources().getDisplayMetrics().density + 0.5f);
     }
 
     protected void prepareRevcStorageRoot() throws IOException {
