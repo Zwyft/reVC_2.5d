@@ -101,7 +101,7 @@ jobs:
 
       - name: Build ${{ matrix.variant }} APK
         working-directory: android/launcher
-        run: ./gradlew assemble${{ matrix.variant == 'debug' && 'Debug' || 'Release' }} --no-daemon --stacktrace --build-cache -PrevcSpriteOutput="$REVC_SPRITE_OUTPUT"
+        run: ./gradlew assembleDebug --no-daemon --stacktrace --build-cache -PrevcSpriteOutput="$REVC_SPRITE_OUTPUT"
 
       - name: Upload ${{ matrix.variant }} APK
         uses: actions/upload-artifact@v4
