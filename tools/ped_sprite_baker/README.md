@@ -29,6 +29,8 @@ frame <model_id> <state> <direction> <frame_index> <duration_ms> <atlas_name> <x
 
 Run `revc_ped_sprite_baker --emit-bake-plan --asset-root <owned GTA VC root> --output <generated sprite output>` to validate the owned asset root and write `sprites/peds/bake-plan.txt`. The bake plan lists deterministic target models discovered from built-in VC ped model ids, IDE `peds` sections referenced by `DATA/DEFAULT.DAT`/`DATA/ANIMVIEWER.DAT`, and mission specials listed in `DATA/SPECIAL.TXT`. It is an intermediate input for the real render backend; it is not a placeholder atlas and is not used by runtime rendering.
 
+Run `revc_ped_sprite_baker --validate-rw-assets --asset-root <owned GTA VC root> --output <generated sprite output>` from a repo-root build to validate the real RenderWare input path. This loads discovered ped DFFs from `MODELS/GTA3.IMG` plus `MODELS/GTA3.DIR` when present, loads TXDs from loose `MODELS/*.TXD` or `MODELS/TXD.IMG` plus `MODELS/TXD.DIR`, scans `ANIM/*.IFP`, attaches skinned atomics to discovered HAnim hierarchies, validates renderable geometry, and writes `sprites/peds/backend-report.txt` with deterministic geometry/skeleton stats. It creates the offscreen target descriptor used by the upcoming GL capture path but does not write placeholder atlases.
+
 Run `revc_ped_sprite_baker --validate-output --output <generated sprite output>` to verify every model has every required state in all 8 directions. Validation also fails if a manifest-referenced atlas PNG is missing.
 
 Runtime states expected by `CPedSpriteAnimResolver`:

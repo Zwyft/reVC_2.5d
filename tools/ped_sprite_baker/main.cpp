@@ -13,6 +13,8 @@
 #include <sys/stat.h>
 #include <vector>
 
+#include "backend.h"
+
 static const char *RequiredStates[] = {
 	"idle",
 	"walk",
@@ -26,13 +28,6 @@ static const char *RequiredStates[] = {
 	"car_sit",
 	"bike_ride",
 	"enter_exit",
-};
-
-struct PedBakeTarget
-{
-	int id;
-	std::string name;
-	std::string source;
 };
 
 static const PedBakeTarget BuiltInPedTargets[] = {
@@ -605,11 +600,12 @@ static void
 usage(const char *argv0)
 {
 	std::fprintf(stderr,
-		"usage: %s [--validate-output] [--emit-bake-plan] --asset-root <owned GTA VC root> --output <generated sprite output>\n"
+		"usage: %s [--validate-output] [--emit-bake-plan] [--validate-rw-assets] --asset-root <owned GTA VC root> --output <generated sprite output>\n"
 		"\n"
 		"The output contract is sprites/peds/manifest.txt plus PNG atlases referenced by that manifest.\n"
 		"This tool validates the user-owned asset root before any bake work starts.\n"
 		"--emit-bake-plan writes sprites/peds/bake-plan.txt with discovered ped/special targets and exits before rendering.\n"
+		"--validate-rw-assets loads discovered DFF/TXD inputs through librw and scans required IFP packages.\n"
 		"Config fallback: vc-assets.local.properties with asset.root and sprite.output.\n",
 		argv0);
 }
@@ -621,6 +617,7 @@ main(int argc, char **argv)
 	std::string outputRoot;
 	bool validateOutputOnly = false;
 	bool emitBakePlanOnly = false;
+	bool validateRwAssetsOnly = false;
 	for(int i = 1; i < argc; i++){
 		if(std::strcmp(argv[i], "--asset-root") == 0 && i + 1 < argc)
 			assetRoot = argv[++i];
@@ -630,6 +627,8 @@ main(int argc, char **argv)
 			validateOutputOnly = true;
 		else if(std::strcmp(argv[i], "--emit-bake-plan") == 0)
 			emitBakePlanOnly = true;
+		else if(std::strcmp(argv[i], "--validate-rw-assets") == 0)
+			validateRwAssetsOnly = true;
 		else if(std::strcmp(argv[i], "--help") == 0){
 			usage(argv[0]);
 			return 0;
@@ -677,7 +676,10 @@ main(int argc, char **argv)
 	if(emitBakePlanOnly)
 		return 0;
 
-	std::fprintf(stderr,
-		"Real DFF/TXD/IFP sprite rendering is not connected yet. Bake plan was emitted, but no atlas was generated.\n");
-	return 3;
+	PedBakeBackendOptions backendOptions;
+	backendOptions.assetRoot = assetRoot;
+	backendOptions.outputRoot = outputRoot;
+	backendOptions.targets = targets;
+	backendOptions.validateOnly = validateRwAssetsOnly;
+	return RunPedSpriteBakeBackend(backendOptions);
 }

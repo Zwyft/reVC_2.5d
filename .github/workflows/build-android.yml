@@ -82,6 +82,12 @@ jobs:
       - name: Build host baker
         run: cmake --build build/ped-baker
 
+      - name: Configure librw-backed baker
+        run: cmake -S . -B build/ped-baker-rw -G Ninja -DREVC_BAKER_ONLY=ON -DLIBRW_PLATFORM=NULL -DREVC_BAKER_BUILD=ON
+
+      - name: Build librw-backed baker
+        run: cmake --build build/ped-baker-rw --target revc_ped_sprite_baker
+
       - name: Validate missing asset root failure
         run: |
           set +e

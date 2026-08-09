@@ -41,12 +41,17 @@ if(NOT ${PROJECT}_AUDIO IN_LIST ${PROJECT}_AUDIOS)
 endif()
 
 option(${PROJECT}_VENDORED_LIBRW "Use vendored librw" ON)
+option(REVC_BAKER_ONLY "Configure only dependencies needed by host baker tools" OFF)
+
 if(${PROJECT}_VENDORED_LIBRW)
     add_subdirectory(vendor/librw)
 else()
     find_package(librw REQUIRED)
 endif()
-add_subdirectory(src)
+
+if(NOT REVC_BAKER_ONLY)
+    add_subdirectory(src)
+endif()
 
 option(REVC_BAKER_BUILD "Build host ped sprite baker tools" ON)
 if(REVC_BAKER_BUILD AND NOT ANDROID)
