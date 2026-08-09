@@ -366,67 +366,6 @@ FindFrame(CPed *ped, const char *state, int32 direction)
 
 
 static void
-RenderSolidScreenQuad(float left, float top, float right, float bottom, float z, float recipz, const CRGBA &color)
-{
-	float screenz = CSprite::GetNearScreenZ() +
-		(z - CDraw::GetNearClipZ()) * (CSprite::GetFarScreenZ() - CSprite::GetNearScreenZ()) * CDraw::GetFarClipZ() /
-		((CDraw::GetFarClipZ() - CDraw::GetNearClipZ()) * z);
-
-	RwIm2DVertex verts[4];
-	RwIm2DVertexSetScreenX(&verts[0], left);
-	RwIm2DVertexSetScreenY(&verts[0], top);
-	RwIm2DVertexSetScreenZ(&verts[0], screenz);
-	RwIm2DVertexSetCameraZ(&verts[0], z);
-	RwIm2DVertexSetRecipCameraZ(&verts[0], recipz);
-	RwIm2DVertexSetIntRGBA(&verts[0], color.r, color.g, color.b, color.a);
-
-	RwIm2DVertexSetScreenX(&verts[1], right);
-	RwIm2DVertexSetScreenY(&verts[1], top);
-	RwIm2DVertexSetScreenZ(&verts[1], screenz);
-	RwIm2DVertexSetCameraZ(&verts[1], z);
-	RwIm2DVertexSetRecipCameraZ(&verts[1], recipz);
-	RwIm2DVertexSetIntRGBA(&verts[1], color.r, color.g, color.b, color.a);
-
-	RwIm2DVertexSetScreenX(&verts[2], right);
-	RwIm2DVertexSetScreenY(&verts[2], bottom);
-	RwIm2DVertexSetScreenZ(&verts[2], screenz);
-	RwIm2DVertexSetCameraZ(&verts[2], z);
-	RwIm2DVertexSetRecipCameraZ(&verts[2], recipz);
-	RwIm2DVertexSetIntRGBA(&verts[2], color.r, color.g, color.b, color.a);
-
-	RwIm2DVertexSetScreenX(&verts[3], left);
-	RwIm2DVertexSetScreenY(&verts[3], bottom);
-	RwIm2DVertexSetScreenZ(&verts[3], screenz);
-	RwIm2DVertexSetCameraZ(&verts[3], z);
-	RwIm2DVertexSetRecipCameraZ(&verts[3], recipz);
-	RwIm2DVertexSetIntRGBA(&verts[3], color.r, color.g, color.b, color.a);
-
-	RwIm2DRenderPrimitive(rwPRIMTYPETRIFAN, verts, 4);
-}
-
-static bool
-RenderMissingPedSpriteMarker(CPed *ped)
-{
-	CVector spriteBase = ped->GetPosition();
-	spriteBase.z += 1.0f;
-	RwV3d screenBase;
-	float screenW, screenH;
-	if(!CSprite::CalcScreenCoors(spriteBase, &screenBase, &screenW, &screenH, true))
-		return true;
-
-	float size = Max(6.0f, Min(screenH * 0.35f, 28.0f));
-	float recipz = 1.0f / screenBase.z;
-	RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)TRUE);
-	RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)FALSE);
-	RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)TRUE);
-	RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nil);
-	RenderSolidScreenQuad(screenBase.x - size, screenBase.y - size, screenBase.x + size, screenBase.y + size,
-	    screenBase.z, recipz, CRGBA(220, 24, 24, 220));
-	RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)TRUE);
-	return true;
-}
-
-static void
 RenderAtlasFrame(float x, float y, float z, float w, float h, float recipz, const PedSpriteAtlas &atlas, const PedSpriteFrame &frame, const CRGBA &tint)
 {
 	float u0 = (float)frame.x / (float)atlas.width;
@@ -490,20 +429,20 @@ bool
 CPedSpriteRenderer::Render(CPed *ped)
 {
 	if(!LoadPedSpriteManifest())
-		return RenderMissingPedSpriteMarker(ped);
+		return true;
 
 	const char *state = CPedSpriteAnimResolver::ResolveState(ped);
 	int32 direction = CPedSpriteAnimResolver::ResolveDirection(ped);
 	const PedSpriteFrame *frame = FindFrame(ped, state, direction);
 	if(frame == nil){
 		SetPedSpriteError("missing frame model=%d state=%s direction=%d", ped->GetModelIndex(), state, direction);
-		return RenderMissingPedSpriteMarker(ped);
+		return true;
 	}
 
 	PedSpriteAtlas &atlas = gPedSpriteAtlases[frame->atlas];
 	RwTexture *texture = LoadAtlasTexture(atlas);
 	if(texture == nil)
-		return RenderMissingPedSpriteMarker(ped);
+		return true;
 
 	CVector spriteBase = ped->GetPosition();
 	RwV3d screenBase;

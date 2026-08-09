@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 #include <dirent.h>
 #include <fstream>
 #include <map>
@@ -167,11 +168,19 @@ private:
 class RwEngineScope
 {
 public:
-	RwEngineScope() : mStarted(false) {}
+	RwEngineScope() : mInitialized(false), mOpened(false), mStarted(false) {}
 
 	bool start()
 	{
-		rw::Engine::init();
+#ifdef RW_GL3
+		if(std::getenv("DISPLAY") == nil && std::getenv("WAYLAND_DISPLAY") == nil){
+			std::fprintf(stderr, "GL3 ped sprite baking requires a graphics session. Run under X/Wayland or xvfb-run.\n");
+			return false;
+		}
+#endif
+		if(!rw::Engine::init())
+			return false;
+		mInitialized = true;
 		rw::registerMeshPlugin();
 		rw::registerNativeDataPlugin();
 		rw::registerAtomicRightsPlugin();
@@ -182,8 +191,18 @@ public:
 		rw::registerHAnimPlugin();
 		rw::registerMatFXPlugin();
 		rw::registerUVAnimPlugin();
+#ifdef RW_GL3
+		mOpenParams.width = 256;
+		mOpenParams.height = 256;
+		mOpenParams.windowtitle = "revc_ped_sprite_baker";
+		mOpenParams.window = &mWindow;
+		if(!rw::Engine::open(&mOpenParams))
+			return false;
+#else
 		if(!rw::Engine::open(nil))
 			return false;
+#endif
+		mOpened = true;
 		if(!rw::Engine::start())
 			return false;
 		mStarted = true;
@@ -194,12 +213,20 @@ public:
 	{
 		if(mStarted)
 			rw::Engine::stop();
-		rw::Engine::close();
-		rw::Engine::term();
+		if(mOpened)
+			rw::Engine::close();
+		if(mInitialized && mOpened)
+			rw::Engine::term();
 	}
 
 private:
+	bool mInitialized;
+	bool mOpened;
 	bool mStarted;
+#ifdef RW_GL3
+	rw::EngineOpenParams mOpenParams;
+	GLFWwindow *mWindow = nil;
+#endif
 };
 
 static rw::TexDictionary*
@@ -358,6 +385,144 @@ writeBackendReport(const std::string &outputRoot, const std::vector<std::string>
 	return true;
 }
 
+#ifdef RW_GL3
+class RwCaptureContext
+{
+public:
+	RwCaptureContext() : mCamera(nil) {}
+
+	bool create(std::vector<std::string> &errors)
+	{
+		if(mCamera)
+			return true;
+		mCamera = rw::Camera::create();
+		if(mCamera == nil){
+			errors.push_back("could not create RenderWare bake camera");
+			return false;
+		}
+		rw::Frame *frame = rw::Frame::create();
+		if(frame == nil){
+			errors.push_back("could not create RenderWare bake camera frame");
+			return false;
+		}
+		mCamera->setFrame(frame);
+		mCamera->frameBuffer = rw::Raster::create(256, 256, 32, rw::Raster::C8888 | rw::Raster::CAMERATEXTURE);
+		mCamera->zBuffer = rw::Raster::create(256, 256, 0, rw::Raster::ZBUFFER);
+		if(mCamera->frameBuffer == nil || mCamera->zBuffer == nil){
+			errors.push_back("could not create RenderWare bake camera texture target");
+			return false;
+		}
+		mCamera->setProjection(rw::Camera::PARALLEL);
+		rw::V2d viewWindow = { 1.2f, 1.8f };
+		mCamera->setViewWindow(&viewWindow);
+		mCamera->setNearPlane(0.1f);
+		mCamera->setFarPlane(40.0f);
+		return true;
+	}
+
+	~RwCaptureContext()
+	{
+		if(mCamera){
+			rw::Raster *fb = mCamera->frameBuffer;
+			rw::Raster *zb = mCamera->zBuffer;
+			mCamera->frameBuffer = nil;
+			mCamera->zBuffer = nil;
+			rw::Frame *frame = mCamera->getFrame();
+			mCamera->setFrame(nil);
+			if(fb)
+				fb->destroy();
+			if(zb)
+				zb->destroy();
+			if(frame)
+				frame->destroy();
+			mCamera->destroy();
+		}
+	}
+
+	bool captureIdleDirection(const PedBakeTarget &target, rw::Clump *clump, int direction, PedCapturedFrame &out, std::vector<std::string> &errors)
+	{
+		if(!create(errors))
+			return false;
+		if(clump == nil || clump->getFrame() == nil){
+			errors.push_back("cannot capture model without clump frame " + std::to_string(target.id) + " " + target.name);
+			return false;
+		}
+
+		const float angleDeg = (float)direction * 45.0f;
+		rw::V3d zaxis = { 0.0f, 0.0f, 1.0f };
+		clump->getFrame()->rotate(&zaxis, angleDeg, rw::COMBINEREPLACE);
+		clump->getFrame()->updateObjects();
+
+		rw::Matrix *cam = &mCamera->getFrame()->matrix;
+		cam->right = { 1.0f, 0.0f, 0.0f };
+		cam->up = { 0.0f, 0.0f, 1.0f };
+		cam->at = { 0.0f, 1.0f, 0.0f };
+		cam->pos = { 0.0f, -8.0f, 0.95f };
+		mCamera->getFrame()->updateObjects();
+
+		rw::RGBA clear = { 0, 0, 0, 0 };
+		mCamera->clear(&clear, rw::Camera::CLEARIMAGE | rw::Camera::CLEARZ);
+		mCamera->beginUpdate();
+		clump->render();
+		mCamera->endUpdate();
+
+		rw::Image *image = mCamera->frameBuffer->toImage();
+		if(image == nil || image->depth != 32){
+			if(image)
+				image->destroy();
+			errors.push_back("could not read 32-bit RGBA capture for model " + std::to_string(target.id) + " " + target.name);
+			return false;
+		}
+
+		out.modelId = target.id;
+		out.modelName = target.name;
+		out.state = "idle";
+		out.direction = direction;
+		out.frameIndex = 0;
+		out.durationMs = 120;
+		out.width = image->width;
+		out.height = image->height;
+		out.pivotX = 0.5f;
+		out.pivotY = 0.92f;
+		out.worldHeight = 1.8f;
+		out.rgba.resize((size_t)image->width * (size_t)image->height * 4u);
+		for(int y = 0; y < image->height; y++){
+			const rw::uint8 *src = image->pixels + (size_t)y * (size_t)image->stride;
+			rw::uint8 *dst = out.rgba.data() + (size_t)y * (size_t)image->width * 4u;
+			std::memcpy(dst, src, (size_t)image->width * 4u);
+		}
+		image->destroy();
+		return true;
+	}
+
+private:
+	rw::Camera *mCamera;
+};
+
+static bool
+captureAvailableFrames(const PedBakeTarget &target, rw::Clump *clump, RwCaptureContext &capture, std::vector<PedCapturedFrame> &frames,
+    std::vector<std::string> &errors)
+{
+	for(int direction = 0; direction < 8; direction++){
+		PedCapturedFrame frame;
+		if(!capture.captureIdleDirection(target, clump, direction, frame, errors))
+			return false;
+		frames.push_back(frame);
+	}
+	return true;
+}
+#else
+static bool
+captureAvailableFrames(const PedBakeTarget &target, rw::Clump *clump, std::vector<PedCapturedFrame> &frames, std::vector<std::string> &errors)
+{
+	(void)target;
+	(void)clump;
+	(void)frames;
+	errors.push_back("real frame capture requires a baker built with LIBRW_PLATFORM=GL3");
+	return false;
+}
+#endif
+
 static bool
 loadTxd(const std::string &assetRoot, const ImgArchive &txdImg, const std::string &modelName, rw::TexDictionary **out)
 {
@@ -458,6 +623,11 @@ RunPedSpriteBakeBackend(const PedBakeBackendOptions &options)
 		return 1;
 	}
 
+	std::vector<PedCapturedFrame> capturedFrames;
+#ifdef RW_GL3
+	RwCaptureContext captureContext;
+#endif
+
 	ImgArchive gtaImg;
 	ImgArchive txdImg;
 	std::string modelDir = joinPath(options.assetRoot, "MODELS");
@@ -485,6 +655,13 @@ RunPedSpriteBakeBackend(const PedBakeBackendOptions &options)
 				prepareClumpForBake(clump, stats);
 				if(validateClumpStats(target, stats, errors)){
 					loaded++;
+					if(!options.validateOnly){
+#ifdef RW_GL3
+						captureAvailableFrames(target, clump, captureContext, capturedFrames, errors);
+#else
+						captureAvailableFrames(target, clump, capturedFrames, errors);
+#endif
+					}
 					std::ostringstream line;
 					line << "target " << target.id << " " << target.name << " atomics " << stats.atomics << " skinned "
 					     << stats.skinnedAtomics << " vertices " << stats.vertices << " triangles " << stats.triangles
@@ -519,7 +696,8 @@ RunPedSpriteBakeBackend(const PedBakeBackendOptions &options)
 	if(options.validateOnly)
 		return 0;
 
-	std::vector<PedCapturedFrame> capturedFrames;
+	if(!capturedFrames.empty())
+		std::printf("Captured %zu neutral RenderWare frame(s); animation-state binding is still required for complete atlases.\n", capturedFrames.size());
 	if(!WritePedSpriteAtlases(options.outputRoot, options.targets, capturedFrames, errors)){
 		std::fprintf(stderr, "Ped sprite atlas generation failed:\n");
 		for(size_t i = 0; i < errors.size(); i++)

@@ -118,6 +118,78 @@ validateFramePixels(const PedCapturedFrame &frame, std::vector<std::string> &err
 	return true;
 }
 
+
+static unsigned char
+quantizeChannel(unsigned char v)
+{
+	return (unsigned char)((v / 32) * 32 + 16);
+}
+
+static void
+applyHd2dStyle(PedCapturedFrame &frame)
+{
+	std::vector<unsigned char> src = frame.rgba;
+	std::vector<unsigned char> styled = src;
+	for(int y = 0; y < frame.height; y++){
+		for(int x = 0; x < frame.width; x++){
+			size_t i = ((size_t)y * (size_t)frame.width + (size_t)x) * 4u;
+			if(src[i + 3] == 0)
+				continue;
+			styled[i + 0] = quantizeChannel(src[i + 0]);
+			styled[i + 1] = quantizeChannel(src[i + 1]);
+			styled[i + 2] = quantizeChannel(src[i + 2]);
+			if(x < frame.width / 3 || y < frame.height / 3){
+				styled[i + 0] = (unsigned char)std::min(255, styled[i + 0] + 18);
+				styled[i + 1] = (unsigned char)std::min(255, styled[i + 1] + 18);
+				styled[i + 2] = (unsigned char)std::min(255, styled[i + 2] + 18);
+			}
+		}
+	}
+
+	for(int y = 1; y < frame.height - 1; y++){
+		for(int x = 1; x < frame.width - 1; x++){
+			size_t i = ((size_t)y * (size_t)frame.width + (size_t)x) * 4u;
+			if(src[i + 3] != 0)
+				continue;
+			bool neighbor = false;
+			for(int oy = -1; oy <= 1; oy++){
+				for(int ox = -1; ox <= 1; ox++){
+					if(ox == 0 && oy == 0)
+						continue;
+					size_t ni = ((size_t)(y + oy) * (size_t)frame.width + (size_t)(x + ox)) * 4u;
+					neighbor = neighbor || src[ni + 3] > 32;
+				}
+			}
+			if(neighbor){
+				styled[i + 0] = 18;
+				styled[i + 1] = 18;
+				styled[i + 2] = 22;
+				styled[i + 3] = 210;
+			}
+		}
+	}
+
+	int shadowY = std::min(frame.height - 3, (int)(frame.pivotY * frame.height));
+	int cx = (int)(frame.pivotX * frame.width);
+	int rx = std::max(8, frame.width / 5);
+	for(int y = shadowY; y < std::min(frame.height, shadowY + 8); y++){
+		for(int x = std::max(0, cx - rx); x < std::min(frame.width, cx + rx); x++){
+			float dx = (float)(x - cx) / (float)rx;
+			if(dx * dx > 1.0f)
+				continue;
+			size_t i = ((size_t)y * (size_t)frame.width + (size_t)x) * 4u;
+			if(styled[i + 3] != 0)
+				continue;
+			styled[i + 0] = 0;
+			styled[i + 1] = 0;
+			styled[i + 2] = 0;
+			styled[i + 3] = (unsigned char)(48.0f * (1.0f - dx * dx));
+		}
+	}
+
+	frame.rgba.swap(styled);
+}
+
 static bool
 writeAtlasPng(const std::string &path, int width, int height, const std::vector<unsigned char> &rgba, std::vector<std::string> &errors)
 {
@@ -229,12 +301,14 @@ WritePedSpriteAtlases(const std::string &outputRoot, const std::vector<PedBakeTa
 		const PedCapturedFrame &frame = frames[i];
 		if(!validateFramePixels(frame, errors))
 			continue;
-		if(targetById.find(frame.modelId) == targetById.end()){
-			errors.push_back("captured frame references unknown model " + std::to_string(frame.modelId));
+		PedCapturedFrame styledFrame = frame;
+		applyHd2dStyle(styledFrame);
+		if(targetById.find(styledFrame.modelId) == targetById.end()){
+			errors.push_back("captured frame references unknown model " + std::to_string(styledFrame.modelId));
 			continue;
 		}
-		framesByModel[frame.modelId].push_back(frame);
-		coverage.insert(frameKey(frame.modelId, frame.state, frame.direction));
+		framesByModel[styledFrame.modelId].push_back(styledFrame);
+		coverage.insert(frameKey(styledFrame.modelId, styledFrame.state, styledFrame.direction));
 	}
 
 	for(size_t i = 0; i < targets.size(); i++){
