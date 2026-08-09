@@ -27,7 +27,9 @@ atlas <atlas_name> <png_path> <width> <height>
 frame <model_id> <state> <direction> <frame_index> <duration_ms> <atlas_name> <x> <y> <w> <h> <pivot_x> <pivot_y> <world_height>
 ```
 
-Run `revc_ped_sprite_baker --validate-output --output <generated sprite output>` to verify every model has every required state in all 8 directions.
+Run `revc_ped_sprite_baker --emit-bake-plan --asset-root <owned GTA VC root> --output <generated sprite output>` to validate the owned asset root and write `sprites/peds/bake-plan.txt`. The bake plan lists deterministic target models discovered from built-in VC ped model ids, IDE `peds` sections referenced by `DATA/DEFAULT.DAT`/`DATA/ANIMVIEWER.DAT`, and mission specials listed in `DATA/SPECIAL.TXT`. It is an intermediate input for the real render backend; it is not a placeholder atlas and is not used by runtime rendering.
+
+Run `revc_ped_sprite_baker --validate-output --output <generated sprite output>` to verify every model has every required state in all 8 directions. Validation also fails if a manifest-referenced atlas PNG is missing.
 
 Runtime states expected by `CPedSpriteAnimResolver`:
 

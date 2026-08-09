@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -7,6 +8,7 @@
 #include <fstream>
 #include <map>
 #include <set>
+#include <sstream>
 #include <string>
 #include <sys/stat.h>
 #include <vector>
@@ -24,6 +26,122 @@ static const char *RequiredStates[] = {
 	"car_sit",
 	"bike_ride",
 	"enter_exit",
+};
+
+struct PedBakeTarget
+{
+	int id;
+	std::string name;
+	std::string source;
+};
+
+static const PedBakeTarget BuiltInPedTargets[] = {
+	{0, "player", "builtin"},
+	{1, "cop", "builtin"},
+	{2, "swat", "builtin"},
+	{3, "fbi", "builtin"},
+	{4, "army", "builtin"},
+	{5, "medic", "builtin"},
+	{6, "fireman", "builtin"},
+	{7, "male01", "builtin"},
+	{9, "hfyst", "builtin"},
+	{10, "hfost", "builtin"},
+	{11, "hmyst", "builtin"},
+	{12, "hmost", "builtin"},
+	{13, "hfyri", "builtin"},
+	{14, "hfori", "builtin"},
+	{15, "hmyri", "builtin"},
+	{16, "hmori", "builtin"},
+	{17, "hfybe", "builtin"},
+	{18, "hfobe", "builtin"},
+	{19, "hmybe", "builtin"},
+	{20, "hmobe", "builtin"},
+	{21, "hfybu", "builtin"},
+	{22, "hfymd", "builtin"},
+	{23, "hfycg", "builtin"},
+	{24, "hfypr", "builtin"},
+	{25, "hfotr", "builtin"},
+	{26, "hmotr", "builtin"},
+	{27, "hmyap", "builtin"},
+	{28, "hmoca", "builtin"},
+	{29, "bmodk", "builtin"},
+	{30, "bmykr", "builtin"},
+	{31, "bfyst", "builtin"},
+	{32, "bfost", "builtin"},
+	{33, "bmyst", "builtin"},
+	{34, "bmost", "builtin"},
+	{35, "bfyri", "builtin"},
+	{36, "bfori", "builtin"},
+	{37, "bmyri", "builtin"},
+	{38, "bfybe", "builtin"},
+	{39, "bmybe", "builtin"},
+	{40, "bfobe", "builtin"},
+	{41, "bmobe", "builtin"},
+	{42, "bmybu", "builtin"},
+	{43, "bfypr", "builtin"},
+	{44, "bfotr", "builtin"},
+	{45, "bmotr", "builtin"},
+	{46, "bmypi", "builtin"},
+	{47, "bmybb", "builtin"},
+	{48, "wmycr", "builtin"},
+	{49, "wfyst", "builtin"},
+	{50, "wfost", "builtin"},
+	{51, "wmyst", "builtin"},
+	{52, "wmost", "builtin"},
+	{53, "wfyri", "builtin"},
+	{54, "wfori", "builtin"},
+	{55, "wmyri", "builtin"},
+	{56, "wmori", "builtin"},
+	{57, "wfybe", "builtin"},
+	{58, "wmybe", "builtin"},
+	{59, "wfobe", "builtin"},
+	{60, "wmobe", "builtin"},
+	{61, "wmycw", "builtin"},
+	{62, "wmygo", "builtin"},
+	{63, "wfogo", "builtin"},
+	{64, "wmogo", "builtin"},
+	{65, "wfylg", "builtin"},
+	{66, "wmylg", "builtin"},
+	{67, "wfybu", "builtin"},
+	{68, "wmybu", "builtin"},
+	{69, "wmobu", "builtin"},
+	{70, "wfypr", "builtin"},
+	{71, "wfotr", "builtin"},
+	{72, "wmotr", "builtin"},
+	{73, "wmypi", "builtin"},
+	{74, "wmoca", "builtin"},
+	{75, "wfyjg", "builtin"},
+	{76, "wmyjg", "builtin"},
+	{77, "wfysk", "builtin"},
+	{78, "wmysk", "builtin"},
+	{79, "wfysh", "builtin"},
+	{80, "wfosh", "builtin"},
+	{81, "jfoto", "builtin"},
+	{82, "jmoto", "builtin"},
+	{83, "cba", "builtin"},
+	{84, "cbb", "builtin"},
+	{85, "hna", "builtin"},
+	{86, "hnb", "builtin"},
+	{87, "sga", "builtin"},
+	{88, "sgb", "builtin"},
+	{89, "cla", "builtin"},
+	{90, "clb", "builtin"},
+	{91, "gda", "builtin"},
+	{92, "gdb", "builtin"},
+	{93, "bka", "builtin"},
+	{94, "bkb", "builtin"},
+	{95, "pga", "builtin"},
+	{96, "pgb", "builtin"},
+	{97, "vice1", "builtin"},
+	{98, "vice2", "builtin"},
+	{99, "vice3", "builtin"},
+	{100, "vice4", "builtin"},
+	{101, "vice5", "builtin"},
+	{102, "vice6", "builtin"},
+	{103, "vice7", "builtin"},
+	{104, "vice8", "builtin"},
+	{105, "wfyg1", "builtin"},
+	{106, "wfyg2", "builtin"},
 };
 
 static std::string
@@ -94,6 +212,13 @@ upper(std::string s)
 	return s;
 }
 
+static std::string
+lower(std::string s)
+{
+	std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+	return s;
+}
+
 static bool
 dirHasExt(const std::string &dir, const char *ext)
 {
@@ -111,6 +236,32 @@ dirHasExt(const std::string &dir, const char *ext)
 	}
 	closedir(d);
 	return found;
+}
+
+static bool
+makeDir(const std::string &path)
+{
+	if(path.empty() || isDir(path))
+		return true;
+	if(mkdir(path.c_str(), 0775) == 0 || errno == EEXIST)
+		return true;
+	return false;
+}
+
+static bool
+makeDirs(const std::string &path)
+{
+	if(path.empty() || isDir(path))
+		return true;
+	std::string partial;
+	for(size_t i = 0; i < path.size(); i++){
+		partial.push_back(path[i]);
+		if(path[i] == '/' || path[i] == '\\'){
+			if(partial.size() > 1 && !makeDir(partial))
+				return false;
+		}
+	}
+	return makeDir(path);
 }
 
 static std::vector<std::string>
@@ -137,11 +288,208 @@ validateAssetRoot(const std::string &root)
 	return missing;
 }
 
+static std::string
+stripComment(const std::string &line)
+{
+	size_t hash = line.find('#');
+	size_t slash = line.find("//");
+	size_t cut = std::string::npos;
+	if(hash != std::string::npos)
+		cut = hash;
+	if(slash != std::string::npos)
+		cut = cut == std::string::npos ? slash : std::min(cut, slash);
+	return trim(cut == std::string::npos ? line : line.substr(0, cut));
+}
+
+static std::vector<std::string>
+splitFields(std::string line)
+{
+	for(size_t i = 0; i < line.size(); i++)
+		if(line[i] == ',' || std::isspace((unsigned char)line[i]))
+			line[i] = ' ';
+	std::istringstream in(line);
+	std::vector<std::string> fields;
+	std::string field;
+	while(in >> field)
+		fields.push_back(field);
+	return fields;
+}
+
+static bool
+parseInt(const std::string &s, int &out)
+{
+	char *end = NULL;
+	long value = std::strtol(s.c_str(), &end, 0);
+	if(end == s.c_str() || *end != '\0')
+		return false;
+	out = (int)value;
+	return true;
+}
+
+static std::string
+normalizeDataPath(std::string path)
+{
+	path = trim(path);
+	if(path.size() >= 2 && ((path[0] == '"' && path[path.size() - 1] == '"') || (path[0] == '\'' && path[path.size() - 1] == '\'')))
+		path = path.substr(1, path.size() - 2);
+	size_t version = path.find(';');
+	if(version != std::string::npos)
+		path = path.substr(0, version);
+	while(!path.empty() && (path[0] == '/' || path[0] == '\\'))
+		path.erase(path.begin());
+	for(size_t i = 0; i < path.size(); i++)
+		if(path[i] == '\\')
+			path[i] = '/';
+	return path;
+}
+
+static void
+addTarget(std::map<int, PedBakeTarget> &targets, int id, const std::string &name, const std::string &source)
+{
+	if(id < 0)
+		return;
+	PedBakeTarget target;
+	target.id = id;
+	target.name = lower(name);
+	target.source = source;
+	std::map<int, PedBakeTarget>::iterator it = targets.find(id);
+	if(it == targets.end() || it->second.source == "builtin")
+		targets[id] = target;
+}
+
+static void
+addBuiltInTargets(std::map<int, PedBakeTarget> &targets)
+{
+	for(size_t i = 0; i < sizeof(BuiltInPedTargets) / sizeof(BuiltInPedTargets[0]); i++)
+		addTarget(targets, BuiltInPedTargets[i].id, BuiltInPedTargets[i].name, BuiltInPedTargets[i].source);
+}
+
+static void
+parseIdePeds(const std::string &assetRoot, const std::string &idePath, std::map<int, PedBakeTarget> &targets)
+{
+	std::ifstream f(joinPath(assetRoot, idePath).c_str());
+	if(!f)
+		return;
+
+	bool inPeds = false;
+	std::string line;
+	while(std::getline(f, line)){
+		line = stripComment(line);
+		if(line.empty())
+			continue;
+		std::string section = lower(line);
+		if(!inPeds){
+			if(section == "peds")
+				inPeds = true;
+			continue;
+		}
+		if(section == "end"){
+			inPeds = false;
+			continue;
+		}
+
+		std::vector<std::string> fields = splitFields(line);
+		int id;
+		if(fields.size() >= 2 && parseInt(fields[0], id))
+			addTarget(targets, id, fields[1], "ide:" + idePath);
+	}
+}
+
+static void
+parseLevelForIdeFiles(const std::string &assetRoot, const std::string &levelPath, std::map<int, PedBakeTarget> &targets)
+{
+	std::ifstream f(joinPath(assetRoot, levelPath).c_str());
+	if(!f)
+		return;
+
+	std::string line;
+	while(std::getline(f, line)){
+		line = stripComment(line);
+		if(line.empty())
+			continue;
+		std::vector<std::string> fields = splitFields(line);
+		if(fields.size() < 2)
+			continue;
+		if(lower(fields[0]) != "ide")
+			continue;
+		std::string idePath = normalizeDataPath(fields[1]);
+		if(!idePath.empty())
+			parseIdePeds(assetRoot, idePath, targets);
+	}
+}
+
+static void
+parseSpecialTargets(const std::string &assetRoot, std::map<int, PedBakeTarget> &targets)
+{
+	std::ifstream f(joinPath(assetRoot, "DATA/SPECIAL.TXT").c_str());
+	if(!f)
+		return;
+
+	std::string line;
+	int lineId = 0;
+	while(lineId < 21 && std::getline(f, line)){
+		line = stripComment(line);
+		if(line.empty()){
+			lineId++;
+			continue;
+		}
+		std::vector<std::string> fields = splitFields(line);
+		if(!fields.empty())
+			addTarget(targets, 109 + lineId, fields[0], "special:DATA/SPECIAL.TXT");
+		lineId++;
+	}
+}
+
+static std::vector<PedBakeTarget>
+discoverPedBakeTargets(const std::string &assetRoot)
+{
+	std::map<int, PedBakeTarget> targets;
+	addBuiltInTargets(targets);
+	parseLevelForIdeFiles(assetRoot, "DATA/DEFAULT.DAT", targets);
+	parseLevelForIdeFiles(assetRoot, "DATA/ANIMVIEWER.DAT", targets);
+	parseSpecialTargets(assetRoot, targets);
+
+	std::vector<PedBakeTarget> result;
+	for(std::map<int, PedBakeTarget>::const_iterator it = targets.begin(); it != targets.end(); ++it)
+		result.push_back(it->second);
+	return result;
+}
+
+static bool
+writeBakePlan(const std::string &assetRoot, const std::string &outputRoot, const std::vector<PedBakeTarget> &targets)
+{
+	std::string pedDir = joinPath(joinPath(outputRoot, "sprites"), "peds");
+	if(!makeDirs(pedDir)){
+		std::fprintf(stderr, "Could not create %s\n", pedDir.c_str());
+		return false;
+	}
+
+	std::string planPath = joinPath(pedDir, "bake-plan.txt");
+	std::ofstream out(planPath.c_str());
+	if(!out){
+		std::fprintf(stderr, "Could not write %s\n", planPath.c_str());
+		return false;
+	}
+
+	out << "# reVC ped sprite bake plan v1\n";
+	out << "# Generated from owned local game data. This is not a sprite atlas.\n";
+	out << "asset_root " << assetRoot << "\n";
+	out << "target_count " << targets.size() << "\n";
+	for(size_t i = 0; i < targets.size(); i++)
+		out << "target " << targets[i].id << " " << targets[i].name << " " << targets[i].source << "\n";
+	for(size_t state = 0; state < sizeof(RequiredStates) / sizeof(RequiredStates[0]); state++)
+		out << "state " << RequiredStates[state] << " directions 8 height_px 128\n";
+
+	std::printf("Ped bake plan written: %s\n", planPath.c_str());
+	std::printf("Discovered %zu gameplay-visible ped targets.\n", targets.size());
+	return true;
+}
+
 struct ManifestCoverage
 {
 	std::set<int> models;
 	std::map<int, std::string> modelNames;
-	std::set<std::string> atlases;
+	std::map<std::string, std::string> atlasPaths;
 	std::set<std::string> frameKeys;
 };
 
@@ -152,8 +500,9 @@ frameKey(int model, const std::string &state, int direction)
 }
 
 static bool
-parseManifest(const std::string &manifestPath, ManifestCoverage &coverage, std::vector<std::string> &errors)
+parseManifest(const std::string &outputRoot, ManifestCoverage &coverage, std::vector<std::string> &errors)
 {
+	std::string manifestPath = joinPath(outputRoot, "sprites/peds/manifest.txt");
 	std::ifstream f(manifestPath.c_str());
 	if(!f){
 		errors.push_back("Missing ped sprite manifest: " + manifestPath);
@@ -188,7 +537,9 @@ parseManifest(const std::string &manifestPath, ManifestCoverage &coverage, std::
 				errors.push_back("Bad atlas line " + std::to_string(lineNo));
 				continue;
 			}
-			coverage.atlases.insert(atlasName);
+			coverage.atlasPaths[atlasName] = path;
+			if(!exists(joinPath(outputRoot, path)))
+				errors.push_back("Missing atlas PNG referenced on line " + std::to_string(lineNo) + ": " + joinPath(outputRoot, path));
 		}else if(strcmp(tag, "frame") == 0){
 			int model, direction, frame, duration, x, y, w, h;
 			char state[24], atlasName[32];
@@ -204,7 +555,7 @@ parseManifest(const std::string &manifestPath, ManifestCoverage &coverage, std::
 			}
 			coverage.models.insert(model);
 			coverage.frameKeys.insert(frameKey(model, state, direction));
-			if(coverage.atlases.find(atlasName) == coverage.atlases.end())
+			if(coverage.atlasPaths.find(atlasName) == coverage.atlasPaths.end())
 				errors.push_back("Frame line " + std::to_string(lineNo) + " references unknown atlas " + atlasName);
 		}else{
 			errors.push_back("Unknown manifest tag on line " + std::to_string(lineNo) + ": " + tag);
@@ -218,11 +569,11 @@ validateManifestCoverage(const std::string &outputRoot)
 {
 	std::vector<std::string> errors;
 	ManifestCoverage coverage;
-	parseManifest(joinPath(outputRoot, "sprites/peds/manifest.txt"), coverage, errors);
+	parseManifest(outputRoot, coverage, errors);
 
 	if(coverage.models.empty())
 		errors.push_back("Manifest has no model/frame entries");
-	if(coverage.atlases.empty())
+	if(coverage.atlasPaths.empty())
 		errors.push_back("Manifest has no atlas entries");
 
 	for(std::set<int>::const_iterator model = coverage.models.begin(); model != coverage.models.end(); ++model){
@@ -246,7 +597,7 @@ validateManifestCoverage(const std::string &outputRoot)
 
 	std::printf("Ped sprite output validated: %s\n", outputRoot.c_str());
 	std::printf("Models: %zu, atlases: %zu, model-state-direction entries: %zu\n",
-	    coverage.models.size(), coverage.atlases.size(), coverage.frameKeys.size());
+	    coverage.models.size(), coverage.atlasPaths.size(), coverage.frameKeys.size());
 	return true;
 }
 
@@ -254,10 +605,11 @@ static void
 usage(const char *argv0)
 {
 	std::fprintf(stderr,
-		"usage: %s [--validate-output] --asset-root <owned GTA VC root> --output <generated sprite output>\n"
+		"usage: %s [--validate-output] [--emit-bake-plan] --asset-root <owned GTA VC root> --output <generated sprite output>\n"
 		"\n"
 		"The output contract is sprites/peds/manifest.txt plus PNG atlases referenced by that manifest.\n"
 		"This tool validates the user-owned asset root before any bake work starts.\n"
+		"--emit-bake-plan writes sprites/peds/bake-plan.txt with discovered ped/special targets and exits before rendering.\n"
 		"Config fallback: vc-assets.local.properties with asset.root and sprite.output.\n",
 		argv0);
 }
@@ -268,6 +620,7 @@ main(int argc, char **argv)
 	std::string assetRoot;
 	std::string outputRoot;
 	bool validateOutputOnly = false;
+	bool emitBakePlanOnly = false;
 	for(int i = 1; i < argc; i++){
 		if(std::strcmp(argv[i], "--asset-root") == 0 && i + 1 < argc)
 			assetRoot = argv[++i];
@@ -275,6 +628,8 @@ main(int argc, char **argv)
 			outputRoot = argv[++i];
 		else if(std::strcmp(argv[i], "--validate-output") == 0)
 			validateOutputOnly = true;
+		else if(std::strcmp(argv[i], "--emit-bake-plan") == 0)
+			emitBakePlanOnly = true;
 		else if(std::strcmp(argv[i], "--help") == 0){
 			usage(argv[0]);
 			return 0;
@@ -313,9 +668,16 @@ main(int argc, char **argv)
 		return 1;
 	}
 
+	std::vector<PedBakeTarget> targets = discoverPedBakeTargets(assetRoot);
 	std::printf("Asset root validated: %s\n", assetRoot.c_str());
 	std::printf("Sprite output root: %s\n", outputRoot.c_str());
+	if(!writeBakePlan(assetRoot, outputRoot, targets))
+		return 1;
+
+	if(emitBakePlanOnly)
+		return 0;
+
 	std::fprintf(stderr,
-		"Real DFF/TXD/IFP sprite baking is not connected yet. No procedural fallback atlas was generated.\n");
+		"Real DFF/TXD/IFP sprite rendering is not connected yet. Bake plan was emitted, but no atlas was generated.\n");
 	return 3;
 }

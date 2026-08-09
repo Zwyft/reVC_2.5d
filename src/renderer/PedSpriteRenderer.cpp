@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "AnimBlendAssociation.h"
 #include "Camera.h"
 #include "Draw.h"
 #include "FileMgr.h"
@@ -9,6 +10,7 @@
 #include "ModelInfo.h"
 #include "Ped.h"
 #include "PedSpriteRenderer.h"
+#include "RpAnimBlend.h"
 #include "Sprite.h"
 #include "Timer.h"
 #include "Timecycle.h"
@@ -18,6 +20,21 @@
 
 #include <sys/stat.h>
 
+static const char *RequiredPedSpriteStates[] = {
+	"idle",
+	"walk",
+	"run",
+	"sprint",
+	"crouch",
+	"attack",
+	"firearm",
+	"hit",
+	"death",
+	"car_sit",
+	"bike_ride",
+	"enter_exit",
+};
+
 struct PedSpriteAtlas
 {
 	char name[32];
@@ -25,6 +42,12 @@ struct PedSpriteAtlas
 	int32 width;
 	int32 height;
 	RwTexture *texture;
+};
+
+struct PedSpriteModel
+{
+	int32 id;
+	char name[64];
 };
 
 struct PedSpriteFrame
@@ -45,6 +68,7 @@ struct PedSpriteFrame
 };
 
 static std::vector<PedSpriteAtlas> gPedSpriteAtlases;
+static std::vector<PedSpriteModel> gPedSpriteModels;
 static std::vector<PedSpriteFrame> gPedSpriteFrames;
 static bool gPedSpritesLoaded;
 static bool gPedSpritesValid;
@@ -97,8 +121,16 @@ ReadManifestLine(char *line)
 		return true;
 	}
 
-	if(strcmp(tag, "model") == 0)
+	if(strcmp(tag, "model") == 0){
+		PedSpriteModel model;
+		memset(&model, 0, sizeof(model));
+		if(sscanf(line, "%*s %d %63s", &model.id, model.name) != 2){
+			SetPedSpriteError("bad model manifest line: %s", line);
+			return false;
+		}
+		gPedSpriteModels.push_back(model);
 		return true;
+	}
 
 	if(strcmp(tag, "frame") == 0){
 		PedSpriteFrame frame;
@@ -129,6 +161,41 @@ ReadManifestLine(char *line)
 }
 
 static bool
+HasFrameForModelStateDirection(int32 model, const char *state, int32 direction)
+{
+	for(size_t i = 0; i < gPedSpriteFrames.size(); i++)
+		if(gPedSpriteFrames[i].model == model && gPedSpriteFrames[i].direction == direction && strcmp(gPedSpriteFrames[i].state, state) == 0)
+			return true;
+	return false;
+}
+
+static bool
+ValidateRuntimeManifestCoverage(void)
+{
+	if(gPedSpriteModels.empty()){
+		SetPedSpriteError("manifest has no model entries");
+		return false;
+	}
+	if(gPedSpriteAtlases.empty() || gPedSpriteFrames.empty()){
+		SetPedSpriteError("manifest has no atlases or frames");
+		return false;
+	}
+
+	for(size_t i = 0; i < gPedSpriteModels.size(); i++){
+		for(size_t state = 0; state < ARRAY_SIZE(RequiredPedSpriteStates); state++){
+			for(int32 direction = 0; direction < 8; direction++){
+				if(!HasFrameForModelStateDirection(gPedSpriteModels[i].id, RequiredPedSpriteStates[state], direction)){
+					SetPedSpriteError("missing manifest coverage model=%d name=%s state=%s direction=%d",
+					    gPedSpriteModels[i].id, gPedSpriteModels[i].name, RequiredPedSpriteStates[state], direction);
+					return false;
+				}
+			}
+		}
+	}
+	return true;
+}
+
+static bool
 LoadPedSpriteManifest(void)
 {
 	if(gPedSpritesLoaded)
@@ -155,10 +222,8 @@ LoadPedSpriteManifest(void)
 	}
 	CFileMgr::CloseFile(fd);
 
-	if(gPedSpriteAtlases.empty() || gPedSpriteFrames.empty()){
-		SetPedSpriteError("manifest has no atlases or frames");
+	if(!ValidateRuntimeManifestCoverage())
 		return false;
-	}
 
 	gPedSpritesValid = true;
 	return true;
@@ -256,6 +321,19 @@ CPedSpriteAnimResolver::ResolveDirection(CPed *ped)
 	return ((int)Floor((rel + PI / 8.0f) / (PI / 4.0f))) & 7;
 }
 
+static float
+GetPedSpriteAnimProgress(CPed *ped)
+{
+	if(ped->m_rwObject == nil || RwObjectGetType(ped->m_rwObject) != rpCLUMP)
+		return -1.0f;
+
+	CAnimBlendAssociation *assoc = RpAnimBlendClumpGetMainAssociation(ped->GetClump(), nil, nil);
+	if(assoc == nil || assoc->hierarchy == nil || assoc->hierarchy->totalLength <= 0.0f)
+		return -1.0f;
+
+	return Clamp(assoc->currentTime / assoc->hierarchy->totalLength, 0.0f, 0.9999f);
+}
+
 static const PedSpriteFrame*
 FindFrame(CPed *ped, const char *state, int32 direction)
 {
@@ -268,7 +346,13 @@ FindFrame(CPed *ped, const char *state, int32 direction)
 	if(totalDuration <= 0)
 		return nil;
 
-	int32 t = CTimer::GetTimeInMilliseconds() % totalDuration;
+	float progress = GetPedSpriteAnimProgress(ped);
+	int32 t;
+	if(progress >= 0.0f)
+		t = Min((int32)Floor(progress * totalDuration), totalDuration - 1);
+	else
+		t = CTimer::GetTimeInMilliseconds() % totalDuration;
+
 	for(size_t i = 0; i < gPedSpriteFrames.size(); i++){
 		const PedSpriteFrame &frame = gPedSpriteFrames[i];
 		if(frame.model != model || frame.direction != direction || strcmp(frame.state, state) != 0)
@@ -278,6 +362,68 @@ FindFrame(CPed *ped, const char *state, int32 direction)
 		t -= frame.durationMs;
 	}
 	return nil;
+}
+
+
+static void
+RenderSolidScreenQuad(float left, float top, float right, float bottom, float z, float recipz, const CRGBA &color)
+{
+	float screenz = CSprite::GetNearScreenZ() +
+		(z - CDraw::GetNearClipZ()) * (CSprite::GetFarScreenZ() - CSprite::GetNearScreenZ()) * CDraw::GetFarClipZ() /
+		((CDraw::GetFarClipZ() - CDraw::GetNearClipZ()) * z);
+
+	RwIm2DVertex verts[4];
+	RwIm2DVertexSetScreenX(&verts[0], left);
+	RwIm2DVertexSetScreenY(&verts[0], top);
+	RwIm2DVertexSetScreenZ(&verts[0], screenz);
+	RwIm2DVertexSetCameraZ(&verts[0], z);
+	RwIm2DVertexSetRecipCameraZ(&verts[0], recipz);
+	RwIm2DVertexSetIntRGBA(&verts[0], color.r, color.g, color.b, color.a);
+
+	RwIm2DVertexSetScreenX(&verts[1], right);
+	RwIm2DVertexSetScreenY(&verts[1], top);
+	RwIm2DVertexSetScreenZ(&verts[1], screenz);
+	RwIm2DVertexSetCameraZ(&verts[1], z);
+	RwIm2DVertexSetRecipCameraZ(&verts[1], recipz);
+	RwIm2DVertexSetIntRGBA(&verts[1], color.r, color.g, color.b, color.a);
+
+	RwIm2DVertexSetScreenX(&verts[2], right);
+	RwIm2DVertexSetScreenY(&verts[2], bottom);
+	RwIm2DVertexSetScreenZ(&verts[2], screenz);
+	RwIm2DVertexSetCameraZ(&verts[2], z);
+	RwIm2DVertexSetRecipCameraZ(&verts[2], recipz);
+	RwIm2DVertexSetIntRGBA(&verts[2], color.r, color.g, color.b, color.a);
+
+	RwIm2DVertexSetScreenX(&verts[3], left);
+	RwIm2DVertexSetScreenY(&verts[3], bottom);
+	RwIm2DVertexSetScreenZ(&verts[3], screenz);
+	RwIm2DVertexSetCameraZ(&verts[3], z);
+	RwIm2DVertexSetRecipCameraZ(&verts[3], recipz);
+	RwIm2DVertexSetIntRGBA(&verts[3], color.r, color.g, color.b, color.a);
+
+	RwIm2DRenderPrimitive(rwPRIMTYPETRIFAN, verts, 4);
+}
+
+static bool
+RenderMissingPedSpriteMarker(CPed *ped)
+{
+	CVector spriteBase = ped->GetPosition();
+	spriteBase.z += 1.0f;
+	RwV3d screenBase;
+	float screenW, screenH;
+	if(!CSprite::CalcScreenCoors(spriteBase, &screenBase, &screenW, &screenH, true))
+		return true;
+
+	float size = Max(6.0f, Min(screenH * 0.35f, 28.0f));
+	float recipz = 1.0f / screenBase.z;
+	RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)TRUE);
+	RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)FALSE);
+	RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)TRUE);
+	RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nil);
+	RenderSolidScreenQuad(screenBase.x - size, screenBase.y - size, screenBase.x + size, screenBase.y + size,
+	    screenBase.z, recipz, CRGBA(220, 24, 24, 220));
+	RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)TRUE);
+	return true;
 }
 
 static void
@@ -344,20 +490,20 @@ bool
 CPedSpriteRenderer::Render(CPed *ped)
 {
 	if(!LoadPedSpriteManifest())
-		return true;
+		return RenderMissingPedSpriteMarker(ped);
 
 	const char *state = CPedSpriteAnimResolver::ResolveState(ped);
 	int32 direction = CPedSpriteAnimResolver::ResolveDirection(ped);
 	const PedSpriteFrame *frame = FindFrame(ped, state, direction);
 	if(frame == nil){
 		SetPedSpriteError("missing frame model=%d state=%s direction=%d", ped->GetModelIndex(), state, direction);
-		return true;
+		return RenderMissingPedSpriteMarker(ped);
 	}
 
 	PedSpriteAtlas &atlas = gPedSpriteAtlases[frame->atlas];
 	RwTexture *texture = LoadAtlasTexture(atlas);
 	if(texture == nil)
-		return true;
+		return RenderMissingPedSpriteMarker(ped);
 
 	CVector spriteBase = ped->GetPosition();
 	RwV3d screenBase;
