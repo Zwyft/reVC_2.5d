@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "atlas.h"
 
 #ifdef REVC_PED_BAKER_WITH_LIBRW
 
@@ -518,9 +519,14 @@ RunPedSpriteBakeBackend(const PedBakeBackendOptions &options)
 	if(options.validateOnly)
 		return 0;
 
-	std::fprintf(stderr,
-	    "Offscreen GL framebuffer capture and atlas packing are not connected yet; real RenderWare inputs validated.\n");
-	return 3;
+	std::vector<PedCapturedFrame> capturedFrames;
+	if(!WritePedSpriteAtlases(options.outputRoot, options.targets, capturedFrames, errors)){
+		std::fprintf(stderr, "Ped sprite atlas generation failed:\n");
+		for(size_t i = 0; i < errors.size(); i++)
+			std::fprintf(stderr, "  %s\n", errors[i].c_str());
+		return 3;
+	}
+	return 0;
 }
 
 #else

@@ -3,13 +3,23 @@ project(revc_ped_sprite_baker_tool LANGUAGES CXX)
 
 add_executable(revc_ped_sprite_baker
     main.cpp
+    atlas.cpp
+    atlas.h
     backend.cpp
     backend.h
 )
 
 target_compile_features(revc_ped_sprite_baker PRIVATE cxx_std_11)
 
+target_include_directories(revc_ped_sprite_baker PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../../vendor/librw/src/lodepng
+)
+
 if(TARGET librw::librw)
     target_link_libraries(revc_ped_sprite_baker PRIVATE librw::librw)
     target_compile_definitions(revc_ped_sprite_baker PRIVATE REVC_PED_BAKER_WITH_LIBRW)
+else()
+    target_sources(revc_ped_sprite_baker PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/../../vendor/librw/src/lodepng/lodepng.cpp
+    )
 endif()
