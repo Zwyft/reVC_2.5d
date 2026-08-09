@@ -361,3 +361,8 @@ codewarrior/Release/
 codewarrior/Debug/
 
 src/extras/GitSHA1.cpp
+# reVC 2.5D local inputs and generated derivatives
+vc-assets.local.properties
+generated/sprites/
+android/launcher/local.properties
+android/launcher/app/build/

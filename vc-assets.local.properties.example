@@ -1,0 +1,3 @@
+# Copy to vc-assets.local.properties and keep it local. Do not commit original GTA assets.
+# asset.root=/path/to/owned/GTA Vice City
+# sprite.output=/path/to/generated/sprites

@@ -12,6 +12,7 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -50,6 +51,11 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Hashtable;
 import java.util.Locale;
 
@@ -383,6 +389,26 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         mSingleton = this;
         SDL.setContext(this);
 
+        try {
+            prepareRevcStorageRoot();
+        } catch (IOException e) {
+            AlertDialog.Builder dlgAlert = new AlertDialog.Builder(this);
+            dlgAlert.setMessage("Unable to prepare reVC game data."
+                    + System.getProperty("line.separator")
+                    + System.getProperty("line.separator")
+                    + "Error: " + e.getMessage());
+            dlgAlert.setTitle("reVC Data Error");
+            dlgAlert.setPositiveButton("Exit", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int id) {
+                    SDLActivity.mSingleton.finish();
+                }
+            });
+            dlgAlert.setCancelable(false);
+            dlgAlert.create().show();
+            return;
+        }
+
         mClipboardHandler = new SDLClipboardHandler();
 
         mHIDDeviceManager = HIDDeviceManager.acquire(this);
@@ -421,6 +447,68 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
                 Log.v(TAG, "Got filename: " + filename);
                 SDLActivity.onNativeDropFile(filename);
             }
+        }
+    }
+
+    protected void prepareRevcStorageRoot() throws IOException {
+        File root = new File(getFilesDir(), "revc");
+        if (!root.exists() && !root.mkdirs()) {
+            throw new IOException("Could not create " + root.getAbsolutePath());
+        }
+
+        AssetManager assets = getAssets();
+        copyAssetTree(assets, "data", root);
+        copyAssetTree(assets, "models", root);
+        copyAssetTree(assets, "TEXT", root);
+        copyAssetTree(assets, "neo", root);
+        copyAssetTree(assets, "sprites", root);
+        copyAssetFileIfPresent(assets, "gamecontrollerdb.txt", new File(root, "gamecontrollerdb.txt"));
+
+        String storageRoot = root.getAbsolutePath() + File.separator;
+        SDLActivity.nativeSetenv("STORAGE_ROOT", storageRoot);
+        Log.v(TAG, "STORAGE_ROOT=" + storageRoot);
+    }
+
+    private void copyAssetTree(AssetManager assets, String path, File root) throws IOException {
+        String[] children = assets.list(path);
+        if (children == null || children.length == 0) {
+            copyAssetFileIfPresent(assets, path, new File(root, path));
+            return;
+        }
+
+        File dir = new File(root, path);
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IOException("Could not create " + dir.getAbsolutePath());
+        }
+        for (String child : children) {
+            copyAssetTree(assets, path + "/" + child, root);
+        }
+    }
+
+    private void copyAssetFileIfPresent(AssetManager assets, String assetPath, File outFile) throws IOException {
+        InputStream in;
+        try {
+            in = assets.open(assetPath);
+        } catch (IOException e) {
+            return;
+        }
+
+        File parent = outFile.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            in.close();
+            throw new IOException("Could not create " + parent.getAbsolutePath());
+        }
+
+        OutputStream out = new FileOutputStream(outFile);
+        byte[] buffer = new byte[64 * 1024];
+        int read;
+        try {
+            while ((read = in.read(buffer)) >= 0) {
+                out.write(buffer, 0, read);
+            }
+        } finally {
+            in.close();
+            out.close();
         }
     }
 

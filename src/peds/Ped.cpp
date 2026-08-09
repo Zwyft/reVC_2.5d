@@ -40,6 +40,9 @@
 #include "Clock.h"
 #include "Wanted.h"
 #include "SaveBuf.h"
+#ifdef PED_2_5D_SPRITES
+#include "PedSpriteRenderer.h"
+#endif
 
 CPed *gapTempPedList[50];
 uint16 gnNumTempPedList;
@@ -5018,6 +5021,11 @@ CPed::Render(void)
 				return;
 		}
 	}
+
+#ifdef PED_2_5D_SPRITES
+	if(CPedSpriteRenderer::Render(this))
+		return;
+#endif
 
 	CEntity::Render();
 

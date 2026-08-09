@@ -1,0 +1,2 @@
+# Copy to local.properties after installing Android SDK. Do not commit local.properties.
+# sdk.dir=/home/USER/Android/Sdk

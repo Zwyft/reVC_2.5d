@@ -158,6 +158,10 @@ enum Config {
 //#define GTA_XBOX
 #define GTA_MOBILE
 
+// Render peds and the player as camera-facing 2.5D sprites while keeping the map
+// and the rest of the world geometry fully 3D.
+#define PED_2_5D_SPRITES
+
 // Version defines
 #define GTAVC_PS2	400
 #define GTAVC_PC_10	410

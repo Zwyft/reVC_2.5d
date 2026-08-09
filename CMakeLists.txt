@@ -48,6 +48,11 @@ else()
 endif()
 add_subdirectory(src)
 
+option(REVC_BAKER_BUILD "Build host ped sprite baker tools" ON)
+if(REVC_BAKER_BUILD AND NOT ANDROID)
+    add_subdirectory(tools/ped_sprite_baker)
+endif()
+
 if(${PROJECT}_INSTALL)
     install(DIRECTORY gamefiles/ DESTINATION ".")
     if(LIBRW_PLATFORM_NULL)
